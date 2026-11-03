@@ -3,6 +3,13 @@ package com.kulwant.atvhome;
 import android.content.Context;
 import android.graphics.Outline;
 import android.view.Gravity;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.animation.Animator;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
@@ -40,7 +47,7 @@ final class TileAdapter extends RecyclerView.Adapter<TileAdapter.Holder> {
         notifyDataSetChanged();
     }
 
-    static final class Holder extends RecyclerView.ViewHolder {
+            static final class Holder extends RecyclerView.ViewHolder {
         final ImageView card;
         final TextView label;
 
@@ -57,7 +64,7 @@ final class TileAdapter extends RecyclerView.Adapter<TileAdapter.Holder> {
         FrameLayout root = new FrameLayout(c);
         root.setLayoutParams(new RecyclerView.LayoutParams(cellW, cardH + labelSpace));
         root.setClipChildren(false);
-        root.setFocusable(false);
+        root.setFocusable(true);
 
         ImageView card = new ImageView(c);
         card.setId(R.id.card);
@@ -65,23 +72,23 @@ final class TileAdapter extends RecyclerView.Adapter<TileAdapter.Holder> {
         final float radius = Ui.dp(c, 10);
         card.setOutlineProvider(new ViewOutlineProvider() {
             @Override
-            public void getOutline(View v, Outline o) {
-                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), radius);
+            public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
             }
         });
         card.setClipToOutline(true);
-        card.setForeground(Ui.rounded(0, radius, Math.max(1, Ui.dp(c, 1)), 0x1FFFFFFF));   // hairline edge for dark banners
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(cardW, cardH, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(cardW, cardH);
+        lp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.TOP;
         root.addView(card, lp);
 
-        TextView label = Ui.text(c, 400, 13, 0xEEFFFFFF);
+        TextView label = Ui.text(c, 500, 14, 0xFFFFFFFF);
         label.setGravity(Gravity.CENTER);
-        label.setAlpha(0f);
+        label.setSingleLine(true);
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        llp.topMargin = cardH + Ui.dp(c, 12);
+        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(cardW, labelSpace);
+        llp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
         root.addView(label, llp);
+
         return new Holder(root, card, label);
     }
 
@@ -90,10 +97,13 @@ final class TileAdapter extends RecyclerView.Adapter<TileAdapter.Holder> {
         AppRepo.App a = apps.get(pos);
         h.card.setImageBitmap(a.banner);
         h.label.setText(a.label);
+        
         boolean f = pos == focused;
         h.card.setScaleX(f ? FOCUS_SCALE : 1f);
         h.card.setScaleY(f ? FOCUS_SCALE : 1f);
         h.label.setAlpha(f && labels ? 1f : 0f);
+        h.label.setScaleX(f ? 1.05f : 1f);
+        h.label.setScaleY(f ? 1.05f : 1f);
     }
 
     @Override
@@ -109,14 +119,19 @@ final class TileAdapter extends RecyclerView.Adapter<TileAdapter.Holder> {
         animate(rv, pos, true);
     }
 
+
     private void animate(RecyclerView rv, int pos, boolean on) {
         if (pos < 0) return;
         RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(pos);
         if (!(vh instanceof Holder)) return;
         Holder h = (Holder) vh;
         float s = on ? FOCUS_SCALE : 1f;
+        
         h.card.animate().scaleX(s).scaleY(s).setDuration(220)
                 .setInterpolator(new DecelerateInterpolator(1.6f)).start();
-        h.label.animate().alpha(on && labels ? 1f : 0f).setDuration(on ? 220 : 120).start();
+        
+        h.label.animate().alpha(on && labels ? 1f : 0f)
+                .scaleX(on ? 1.05f : 1f).scaleY(on ? 1.05f : 1f)
+                .setDuration(on ? 220 : 120).start();
     }
 }
