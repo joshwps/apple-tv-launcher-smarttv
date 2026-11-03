@@ -85,3 +85,23 @@ adb install -r launcher/app/build/outputs/apk/debug/app-debug.apk
 
 ## 📄 License
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## 🔧 Troubleshooting
+
+### The launcher doesn't open when pressing Home
+1. Go to **Settings > Apps > Default Apps > Home App** and select **Apple TV Launcher**.
+2. Or run via ADB: `adb shell cmd package set-home-activity com.kulwant.atvhome/.HomeActivity`
+
+### Phone Remote is not loading on my phone
+1. Make sure the TV and phone are on the **same Wi-Fi network**.
+2. The TV must be awake (not in sleep mode) for the server to respond.
+3. Check the IP address in the launcher settings and type it in your phone's browser (e.g., `http://192.168.1.167:8080`).
+
+### ADB says "Connection refused" or "Device offline"
+1. Go to **Settings > System > Developer Options** on the TV.
+2. Turn **USB Debugging** OFF and ON again.
+3. Run `adb connect <TV_IP>:5555` again.
+
+### Weather is not loading
+1. Make sure the TV is connected to the internet.
+2. Go to the launcher's Weather settings and re-enter your city (e.g., "São Paulo").

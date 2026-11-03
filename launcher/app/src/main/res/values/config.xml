@@ -1,34 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Dock apps, left to right. Package names; missing or disabled apps are skipped. -->
-    <string-array name="dock_packages">
-        <item>com.netflix.ninja</item>
-        <item>com.amazon.amazonvideo.livingroom</item>
-        <item>org.smarttube.stable</item>
-        <item>com.spotify.tv.android</item>
-        <item>com.newin.nplayer.pro</item>
-    </string-array>
+    <!-- ========================================================= -->
+    <!-- CONFIGURAÇÕES PADRÃO DO LAUNCHER -->
+    <!-- ========================================================= -->
 
-    <!-- Apps per row, in the dock and in the grid (3 to 6). -->
+    <!-- Layout e Aparência -->
     <integer name="columns">5</integer>
+    <integer name="wallpaper_seconds">30</integer>
+    <bool name="use_wallpaper">true</bool>
 
-    <!-- Apps never shown in the grid. -->
-    <string-array name="hidden_packages">
-        <item>com.google.android.tvlauncher</item>
-        <item>com.android.tv.settings</item>
-        <item>com.wolf.firelauncher</item>
-        <item>com.google.android.apps.tv.launcherx</item>
-    </string-array>
-
-    <!-- Name in the greeting ("Good evening, Sam"). Leave empty for no name. -->
-    <string name="greeting_name">Josh</string>
-
-    <!-- Follower counters: left empty to hide them (no network access needed). -->
+    <!-- Redes Sociais (Contadores) - Deixe vazio para ocultar -->
     <string name="youtube_channel"></string>
     <string name="instagram_user"></string>
     <string name="facebook_page"></string>
 
-    <!-- Wallpapers: photos are added later from the phone page. false = pitch black. -->
-    <bool name="use_wallpaper">true</bool>
-    <integer name="wallpaper_seconds">30</integer>
+    <!-- Aplicativos Padrão da Dock (lidos na primeira execução) -->
+    <string-array name="dock_packages">
+        <item>com.google.android.youtube.tv</item>
+        <item>com.netflix.ninja</item>
+        <item>com.spotify.tv.android</item>
+    </string-array>
+
+    <!-- Aplicativos Ocultos (bloatware que não deve aparecer na grade) -->
+    <string-array name="hidden_packages">
+    </string-array>
 </resources>

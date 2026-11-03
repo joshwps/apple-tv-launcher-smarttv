@@ -85,3 +85,23 @@ adb install -r launcher/app/build/outputs/apk/debug/app-debug.apk
 
 ## 📄 Licença
 Este projeto está licenciado sob a Licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+
+## 🔧 Problemas Comuns (Troubleshooting)
+
+### O launcher não abre ao apertar o botão Home
+1. Vá em **Configurações > Aplicativos > Apps Padrão > App Inicial** e selecione o **Apple TV Launcher**.
+2. Ou rode via ADB: `adb shell cmd package set-home-activity com.kulwant.atvhome/.HomeActivity`
+
+### O Controle Remoto (Phone Remote) não carrega no celular
+1. Verifique se a TV e o celular estão na **mesma rede Wi-Fi**.
+2. A TV precisa estar acordada (não pode estar em modo de repouso).
+3. Veja o IP da TV nas configurações do launcher e digite no navegador do celular (ex: `http://192.168.1.167:8080`).
+
+### O ADB diz "Connection refused" ou "Device offline"
+1. Vá em **Configurações > Sistema > Opções do Desenvolvedor** na TV.
+2. Desligue e ligue a **Depuração USB** novamente.
+3. Rode `adb connect <IP_DA_TV>:5555` de novo.
+
+### O clima não está carregando
+1. Verifique se a TV está conectada à internet.
+2. Vá nas configurações de Clima do launcher e digite sua cidade novamente (ex: "São Paulo").
