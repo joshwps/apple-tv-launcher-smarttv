@@ -1,6 +1,8 @@
-# 📺 Apple TV Launcher (Smart TV & TV Box)
+# 📺 Apple TV Launcher (Smart TV)
 
-Um launcher customizado e moderno para Smart TVs rodando **Android 9+** (otimizado para Android 14) e TV Boxes (Android 7). Inspirado na interface limpa da Apple TV.
+![Screenshot do Launcher](screenshots/tela_inicial.png)
+
+Um launcher customizado e moderno para Smart TVs rodando **Android 9+** (otimizado para Android 14). Inspirado na interface limpa da Apple TV.
 
 > **Créditos:** Este projeto foi originalmente baseado no código de [Kulwant Nagi](https://github.com/kulwantnagi) e foi profundamente modificado, otimizado e adaptado por [Joshwps](https://github.com/joshwps).
 
@@ -11,7 +13,7 @@ Um launcher customizado e moderno para Smart TVs rodando **Android 9+** (otimiza
 - **Widget de Clima:** Integração com a API Open-Meteo.
 - **Overlay de Relógio:** Relógio flutuante sobre os apps.
 - **Backup/Restauração em ZIP:** Salva layout e ícones na pasta `Download`.
-- **Compatibilidade:** Adaptado para rodar liso no Android 14 (Smart TV) e Android 7 (TV Box com Root).
+- **Otimização:** Desenvolvido e otimizado especificamente para o Android 14 (Smart TV).
 
 ## 🛠️ Como Compilar (Sem Android Studio)
 
