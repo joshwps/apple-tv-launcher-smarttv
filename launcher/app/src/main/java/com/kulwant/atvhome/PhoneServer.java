@@ -8,6 +8,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,6 +21,7 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
@@ -50,6 +52,7 @@ final class PhoneServer {
 
     static final int PORT = 8080;
     private static final int MAX_BODY = 12 * 1024 * 1024;
+    private static final int MAX_VIDEO = 60 * 1024 * 1024;
 
     private final Context c;
     private final SharedPreferences prefs;
@@ -144,12 +147,18 @@ final class PhoneServer {
             Req r = read(in);
             if (r == null) return;
             r.ip = sock.getInetAddress().getHostAddress();
+            // a background video goes straight to a file, never into memory; paired phones only
+            if ("POST".equals(r.method) && "/api/bg/video".equals(r.path)) {
+                if (authorised(r)) json(out, 200, receiveVideo(in, r.length));
+                else json(out, 401, err("celular n\u00e3o pareado"));
+                return;
+            }
             // decide whether this caller may send a body before allocating it: only paired phones
             // get the large limit (photo uploads), so nobody else can make the TV run out of memory
             int max = OPEN.contains(r.path) ? MAX_OPEN_BODY : authorised(r) ? MAX_BODY : 0;
             if (r.length > max) {
                 json(out, OPEN.contains(r.path) || authorised(r) ? 413 : 401,
-                        err(authorised(r) || OPEN.contains(r.path) ? "too large" : "not paired"));
+                        err(authorised(r) || OPEN.contains(r.path) ? "arquivo grande demais" : "celular n\u00e3o pareado"));
                 return;
             }
             if (!readBody(in, r)) return;
@@ -270,7 +279,7 @@ final class PhoneServer {
                 return;
         }
         if (!authorised(r)) {
-            json(out, 401, err("not paired"));
+            json(out, 401, err("celular n\u00e3o pareado"));
             return;
         }
         switch (r.path) {
@@ -328,7 +337,10 @@ final class PhoneServer {
             case "/api/photo":
                 if ("POST".equals(r.method)) {
                     File f = Wallpapers.add(c, r.body);
-                    json(out, 200, f == null ? err("not an image, or the album is full")
+                    if (f != null && !Background.PHOTOS.equals(Background.mode(c))) {
+                        Background.apply(c, java.util.Collections.singletonMap("mode", Background.PHOTOS));
+                    }
+                    json(out, 200, f == null ? err("n\u00e3o \u00e9 uma imagem, ou o \u00e1lbum est\u00e1 cheio")
                             : ok().put("id", f.getName().replace(".jpg", "")));
                 } else {
                     photo(r, out);
@@ -336,20 +348,96 @@ final class PhoneServer {
                 return;
             case "/api/photo/replace":
                 File rf = Wallpapers.replace(c, param(r, "id"), r.body);
-                json(out, 200, rf == null ? err("photo not found, or not an image") : ok());
+                json(out, 200, rf == null ? err("foto n\u00e3o encontrada, ou n\u00e3o \u00e9 uma imagem") : ok());
                 return;
             case "/api/photo/original":
-                json(out, 200, Wallpapers.setOriginal(c, param(r, "id"), r.body) ? ok() : err("photo not found"));
+                json(out, 200, Wallpapers.setOriginal(c, param(r, "id"), r.body) ? ok() : err("foto n\u00e3o encontrada"));
                 return;
             case "/api/photo/show":
                 Wallpapers.show(c, param(r, "id"));
                 json(out, 200, ok());
                 return;
             case "/api/photo/delete":
-                json(out, 200, Wallpapers.delete(c, param(r, "id")) ? ok() : err("not found"));
+                json(out, 200, Wallpapers.delete(c, param(r, "id")) ? ok() : err("n\u00e3o encontrada"));
+                return;
+            case "/api/app/rename":
+                json(out, 200, AppCustom.setLabel(c, param(r, "pkg"), r.query.containsKey("label") ? r.query.get("label") : "")
+                        ? ok() : err("app inv\u00e1lido"));
+                return;
+            case "/api/app/icon":
+                json(out, 200, AppCustom.setIcon(c, param(r, "pkg"), r.body) ? ok() : err("n\u00e3o \u00e9 uma imagem"));
+                return;
+            case "/api/app/reset":
+                AppCustom.reset(c, param(r, "pkg"));
+                json(out, 200, ok());
+                return;
+            case "/api/bg":
+                json(out, 200, Background.toJson(c));
+                return;
+            case "/api/bg/set": {
+                String bgErr = Background.apply(c, new HashMap<>(r.query));
+                json(out, 200, bgErr == null ? Background.toJson(c) : err(bgErr));
+                return;
+            }
+            case "/api/bg/video/delete":
+                Background.deleteVideo(c);
+                json(out, 200, Background.toJson(c));
                 return;
             default:
                 send(out, 404, "text/plain", "not found".getBytes(StandardCharsets.UTF_8), null);
+        }
+    }
+
+    /** Saves an uploaded background video (streamed to disk) and switches the background to it. */
+    private JSONObject receiveVideo(InputStream in, int length) throws Exception {
+        if (length <= 0) return err("arquivo vazio");
+        if (length > MAX_VIDEO) return err("v\u00eddeo grande demais (m\u00e1ximo 60 MB)");
+        File dir = new File(c.getFilesDir(), "bg");
+        if (!dir.isDirectory()) dir.mkdirs();
+        File tmp = new File(dir, "upload.tmp");
+        byte[] buf = new byte[64 * 1024];
+        int left = length;
+        try (FileOutputStream o = new FileOutputStream(tmp)) {
+            while (left > 0) {
+                int n = in.read(buf, 0, Math.min(buf.length, left));
+                if (n < 0) {
+                    tmp.delete();
+                    return err("envio interrompido");
+                }
+                o.write(buf, 0, n);
+                left -= n;
+            }
+        }
+        int w = 0, h = 0;
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        try {
+            mmr.setDataSource(tmp.getPath());
+            if (!"yes".equals(mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO))) {
+                tmp.delete();
+                return err("n\u00e3o parece ser um v\u00eddeo");
+            }
+            w = meta(mmr, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            h = meta(mmr, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+        } catch (Exception ex) {
+            tmp.delete();
+            return err("n\u00e3o parece ser um v\u00eddeo");
+        } finally {
+            mmr.release();
+        }
+        File f = new File(dir, "background.mp4");
+        if (!tmp.renameTo(f)) {
+            tmp.delete();
+            return err("n\u00e3o consegui salvar o v\u00eddeo");
+        }
+        Background.apply(c, java.util.Collections.singletonMap("mode", Background.VIDEO));
+        return Background.toJson(c).put("w", w).put("h", h);
+    }
+
+    private static int meta(MediaMetadataRetriever m, int key) {
+        try {
+            return Integer.parseInt(m.extractMetadata(key));
+        } catch (Exception e) {
+            return 0;
         }
     }
 
@@ -384,14 +472,14 @@ final class PhoneServer {
     private synchronized JSONObject startPairing(Req r) throws Exception {
         long now = System.currentTimeMillis();
         Long refused = refusedUntil.get(r.ip);
-        if (refused != null && now < refused) return err("Refused on the TV. Try again in a minute.");
+        if (refused != null && now < refused) return err("Recusado na TV. Tente de novo em um minuto.");
         if (request != null && request.state == 0 && now < request.until) {
             if (request.ip.equals(r.ip)) return ok().put("id", request.id);   // same phone, same prompt
-            return err("Another phone is asking right now. Try again in a minute.");
+            return err("Outro celular est\u00e1 pedindo agora. Tente de novo em um minuto.");
         }
-        if (now - lastPromptAt < 10_000) return err("Wait a few seconds and try again.");
+        if (now - lastPromptAt < 10_000) return err("Espere alguns segundos e tente de novo.");
         if (!PairingPrompt.canShow(c)) {
-            return err("The TV can't show the pairing prompt yet: allow \"Display over other apps\" for the launcher (see the README).");
+            return err("A TV ainda n\u00e3o consegue mostrar o pedido de pareamento: permita \"Exibir sobre outros apps\" para o launcher (veja o README).");
         }
         Request q = new Request();
         q.id = randomHex(16);
@@ -430,13 +518,13 @@ final class PhoneServer {
     /** The phone polls this with the id it got; only that phone (same IP) can collect the token. */
     private synchronized JSONObject pairStatus(String id, String ip) throws Exception {
         Request q = request;
-        if (q == null || !q.id.equals(id) || !q.ip.equals(ip)) return err("No pairing request. Start again.");
+        if (q == null || !q.id.equals(id) || !q.ip.equals(ip)) return err("Nenhum pedido de pareamento. Comece de novo.");
         if (q.state == 1) {
             request = null;   // the token is handed out once
             return ok().put("token", q.token);
         }
-        if (q.state == 2) return err("Refused on the TV.");
-        if (System.currentTimeMillis() > q.until + 5_000) return err("Nobody answered on the TV. Start again.");
+        if (q.state == 2) return err("Recusado na TV.");
+        if (System.currentTimeMillis() > q.until + 5_000) return err("Ningu\u00e9m respondeu na TV. Comece de novo.");
         return ok().put("waiting", true);
     }
 
@@ -473,13 +561,13 @@ final class PhoneServer {
         }
         String e = keys.lastError();
         return ok().put("ready", false)
-                .put("message", e != null ? e : "Connecting… if the TV asks \"Allow USB debugging?\", tick Always allow and press OK");
+                .put("message", e != null ? e : "Conectando\u2026 se a TV perguntar \"Permitir depura\u00e7\u00e3o USB?\", marque Sempre permitir e aperte OK");
     }
 
     // ---------------------------------------------------------------- actions
 
     private synchronized AppRepo.Result apps() {
-        if (apps == null || System.currentTimeMillis() - appsAt > 60_000) {
+        if (apps == null || System.currentTimeMillis() - appsAt > 60_000 || AppCustom.changedAt > appsAt) {
             apps = AppRepo.load(c);
             appsAt = System.currentTimeMillis();
             bannerPng.clear();
@@ -523,7 +611,7 @@ final class PhoneServer {
 
     private JSONObject open(String q) throws Exception {
         AppRepo.App a = findApp(q);
-        if (a == null) return err("no app called " + q);
+        if (a == null) return err("nenhum app chamado " + q);
         Intent i = AppRepo.launchIntent(c.getPackageManager(), a);
         runOnMain(() -> c.startActivity(i));
         return ok().put("opened", a.label);
@@ -537,14 +625,14 @@ final class PhoneServer {
                 return ok().put("opened", it.label);
             }
         }
-        return err("no input called " + q);
+        return err("nenhuma entrada chamada " + q);
     }
 
     /** Plays a YouTube link (watch, youtu.be, shorts) in the TV's YouTube app. */
     private JSONObject youtube(String url) throws Exception {
         java.util.regex.Matcher m = java.util.regex.Pattern
                 .compile("(?:v=|youtu\\.be/|shorts/|embed/|live/)([A-Za-z0-9_-]{11})").matcher(url);
-        if (!m.find()) return err("not a YouTube link");
+        if (!m.find()) return err("n\u00e3o \u00e9 um link do YouTube");
         Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=" + m.group(1)))
                 .setPackage("com.google.android.youtube.tv").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         runOnMain(() -> c.startActivity(i));

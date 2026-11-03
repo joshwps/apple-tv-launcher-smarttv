@@ -1,0 +1,11 @@
+package:com.google.android.tvlauncher
+package:tv.anoki.acr.anokiacroptin
+package:fusion.android.tv.demo
+package:com.google.android.play.games
+package:com.google.android.youtube.tvmusic
+package:android.autoinstalls.config.ktc.pai
+package:com.google.android.marvin.talkback
+package:com.google.android.tvrecommendations
+package:com.google.android.feedback
+package:com.google.android.youtube.tv
+package:com.google.android.katniss

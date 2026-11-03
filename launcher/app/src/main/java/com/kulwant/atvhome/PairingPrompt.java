@@ -81,7 +81,7 @@ final class PairingPrompt {
         card.setPadding(Ui.dp(c, 30), Ui.dp(c, 26), Ui.dp(c, 30), Ui.dp(c, 24));
 
         TextView title = Ui.text(c, 600, 22, 0xFFFFFFFF);
-        title.setText("Allow this phone to control the TV?");
+        title.setText("Permitir que este celular controle a TV?");
         card.addView(title);
         TextView sub = Ui.text(c, 400, 15, 0x99FFFFFF);
         sub.setText(device);
@@ -89,7 +89,7 @@ final class PairingPrompt {
         slp.topMargin = Ui.dp(c, 8);
         card.addView(sub, slp);
         TextView note = Ui.text(c, 400, 13, 0x73FFFFFF);
-        note.setText("It will be able to open apps, press keys, type and change the photos.");
+        note.setText("Ele poder\u00e1 abrir apps, apertar teclas, digitar e alterar as fotos.");
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-2, -2);
         nlp.topMargin = Ui.dp(c, 4);
         card.addView(note, nlp);
@@ -97,7 +97,7 @@ final class PairingPrompt {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.END);
-        String[] labels = {"Don't allow", "Allow"};
+        String[] labels = {"N\u00e3o permitir", "Permitir"};
         for (int i = 0; i < 2; i++) {
             buttons[i] = Ui.text(c, 500, 16, 0xFFFFFFFF);
             buttons[i].setText(labels[i]);

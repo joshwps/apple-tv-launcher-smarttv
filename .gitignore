@@ -1,28 +1,23 @@
-# Python environment
-.venv/
-__pycache__/
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
 
-# Your TV: address and backups contain device details
-.tv-ip
-backup/
-shots/
-
-# Build output
-*.apk
-launcher/local.properties
-launcher/.gradle/
-launcher/app/build/
-launcher/build/
-apps/live-tv/build/
-apps/live-tv/.dart_tool/
-apps/live-tv/android/local.properties
-apps/live-tv/android/.gradle/
-apps/live-tv/android/.kotlin/
-apps/live-tv/android/build/
-
-.DS_Store
+# Configurações locais do Android Studio
+local.properties
 .idea/
 *.iml
 
-# Your own wallpapers (personal photos): put them in launcher/app/src/main/res/drawable-nodpi/
-launcher/app/src/main/res/drawable-nodpi/wallpaper*
+# Arquivos de build
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Chaves de assinatura (NUNCA comite isso)
+*.keystore
+*.jks
+
+# Pastas de sistema
+.DS_Store
+Thumbs.db

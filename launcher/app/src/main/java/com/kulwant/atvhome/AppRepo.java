@@ -3,6 +3,7 @@ package com.kulwant.atvhome;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -15,6 +16,7 @@ import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,6 +41,47 @@ final class AppRepo {
     }
 
     private static final int BANNER_W = 320, BANNER_H = 180;
+    static final int DOCK_DEFAULT = 4, DOCK_SLOTS_MAX = 6;
+    static final int DOCK_APPS_MAX = Integer.MAX_VALUE;
+
+    static int dockSlots(int apps) {
+        return Math.max(DOCK_DEFAULT, Math.min(DOCK_SLOTS_MAX, apps));
+    }
+
+    private static SharedPreferences home(Context c) {
+        return c.getSharedPreferences("home", Context.MODE_PRIVATE);
+    }
+
+    private static List<String> dockWanted(Context c) {
+        List<String> out = new ArrayList<>();
+        String saved = home(c).getString("dock_pkgs", null);
+        if (saved != null) {
+            for (String s : saved.split(",")) if (!s.isEmpty() && !out.contains(s)) out.add(s);
+        } else {
+            out.addAll(Arrays.asList(c.getResources().getStringArray(R.array.dock_packages)));
+        }
+        return out;
+    }
+
+    static int installedDockCount(Context c) {
+        PackageManager pm = c.getPackageManager();
+        int max = home(c).getString("dock_pkgs", null) != null ? DOCK_APPS_MAX : DOCK_DEFAULT;
+        int n = 0;
+        for (String pkg : dockWanted(c)) {
+            if (n >= max) break;
+            if (pm.getLeanbackLaunchIntentForPackage(pkg) != null || pm.getLaunchIntentForPackage(pkg) != null) n++;
+        }
+        return n;
+    }
+
+    static void saveDock(Context c, List<String> pkgs) {
+        StringBuilder sb = new StringBuilder();
+        for (String s : pkgs) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(s);
+        }
+        home(c).edit().putString("dock_pkgs", sb.toString()).apply();
+    }
 
     static Result load(Context c) {
         PackageManager pm = c.getPackageManager();
@@ -46,20 +89,39 @@ final class AppRepo {
         collect(pm, byPkg, Intent.CATEGORY_LEANBACK_LAUNCHER, true);
         collect(pm, byPkg, Intent.CATEGORY_LAUNCHER, false);
         byPkg.remove(c.getPackageName());
+        for (App a : byPkg.values()) a.label = AppCustom.label(c, a.pkg, a.label);
         Set<String> hidden = new HashSet<>(Arrays.asList(
                 c.getResources().getStringArray(R.array.hidden_packages)));
 
         Result r = new Result();
-        for (String pkg : c.getResources().getStringArray(R.array.dock_packages)) {
+        int dockMax = home(c).getString("dock_pkgs", null) != null ? DOCK_APPS_MAX : DOCK_DEFAULT;
+        for (String pkg : dockWanted(c)) {
+            if (r.dock.size() >= dockMax) break;
             App a = byPkg.remove(pkg);
             if (a != null) r.dock.add(a);
         }
         for (App a : byPkg.values()) if (!hidden.contains(a.pkg)) r.grid.add(a);
+
         Collator col = Collator.getInstance();
         Collections.sort(r.grid, (x, y) -> col.compare(x.label, y.label));
 
-        for (App a : r.dock) render(pm, a);
-        for (App a : r.grid) render(pm, a);
+        String gridOrder = home(c).getString("grid_order", "");
+        if (!gridOrder.isEmpty()) {
+            List<String> wanted = Arrays.asList(gridOrder.split(","));
+            final Map<String, Integer> pos = new HashMap<>();
+            for (int i = 0; i < wanted.size(); i++) pos.put(wanted.get(i), i);
+            Collections.sort(r.grid, (x, y) -> {
+                Integer px = pos.get(x.pkg);
+                Integer py = pos.get(y.pkg);
+                if (px == null && py == null) return col.compare(x.label, y.label);
+                if (px == null) return 1;
+                if (py == null) return -1;
+                return px.compareTo(py);
+            });
+        }
+
+        for (App a : r.dock) render(c, pm, a);
+        for (App a : r.grid) render(c, pm, a);
         return r;
     }
 
@@ -77,7 +139,13 @@ final class AppRepo {
         }
     }
 
-    private static void render(PackageManager pm, App a) {
+    private static void render(Context c, PackageManager pm, App a) {
+        Bitmap custom = AppCustom.icon(c, a.pkg, BANNER_W, BANNER_H);
+        if (custom != null) {
+            a.banner = custom;
+            a.glow = vivid(sample(Bitmap.createScaledBitmap(custom, 32, 18, true)));
+            return;
+        }
         Bitmap b = Bitmap.createBitmap(BANNER_W, BANNER_H, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(b);
         Drawable banner = null;
@@ -86,7 +154,7 @@ final class AppRepo {
             banner = ai.loadBanner(pm);
             if (banner == null) banner = pm.getApplicationBanner(a.pkg);
             if (banner != null) {
-                cv.drawColor(0xFF1E1E21);   // surface for banners with transparent areas
+                cv.drawColor(0xFF1E1E21);
                 banner.setBounds(0, 0, BANNER_W, BANNER_H);
                 banner.draw(cv);
             } else {
@@ -95,7 +163,7 @@ final class AppRepo {
                 float[] hsv = new float[3];
                 Color.colorToHSV(tint, hsv);
                 hsv[1] = Math.min(hsv[1], 0.6f);
-                hsv[2] = Math.max(0.22f, Math.min(hsv[2], 0.32f));   // never vanish into the black page
+                hsv[2] = Math.max(0.22f, Math.min(hsv[2], 0.32f));
                 cv.drawColor(Color.HSVToColor(hsv));
                 int s = BANNER_H * 56 / 100;
                 int l = (BANNER_W - s) / 2, t = (BANNER_H - s) / 2;
@@ -116,7 +184,6 @@ final class AppRepo {
         return b;
     }
 
-    /** Average colour weighted towards saturated, bright pixels. */
     private static int sample(Bitmap b) {
         float[] hsv = new float[3];
         double r = 0, g = 0, bl = 0, wsum = 0;
@@ -139,9 +206,7 @@ final class AppRepo {
     private static int vivid(int c) {
         float[] hsv = new float[3];
         Color.colorToHSV(c, hsv);
-        if (hsv[1] < 0.15f) {           // near-grey banner: soft cool white glow
-            return 0xFFB8C4E0;
-        }
+        if (hsv[1] < 0.15f) return 0xFFB8C4E0;
         hsv[1] = Math.min(1f, hsv[1] * 1.15f);
         hsv[2] = Math.max(hsv[2], 0.9f);
         return Color.HSVToColor(hsv);

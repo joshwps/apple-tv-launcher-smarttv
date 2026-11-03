@@ -22,9 +22,20 @@ final class Wallpapers {
     interface Listener {
         /** Called on the main thread; show is a photo to put on screen now, or null after a delete. */
         void onWallpapersChanged(File added);
+
+        /** The background (mode, colours or video) was changed from the phone page; main thread. */
+        default void onBackgroundChanged() {
+        }
+
+        /** An app was renamed or got a new banner; main thread. */
+        default void onAppsChanged() {
+        }
     }
 
     static final int MAX_PHOTOS = 60;
+
+    /** Root of the TV's main storage: the picker for backgrounds and app icons opens here. */
+    static final File USER_DIR = new File("/storage/emulated/0");
     private static volatile Listener listener;
     private static final Handler main = new Handler(Looper.getMainLooper());
 
@@ -141,6 +152,20 @@ final class Wallpapers {
             out.write(data);
         }
         if (!tmp.renameTo(f)) throw new java.io.IOException("rename failed");
+    }
+
+    static void notifyAppsChanged() {
+        main.post(() -> {
+            Listener l = listener;
+            if (l != null) l.onAppsChanged();
+        });
+    }
+
+    static void notifyBackgroundChanged() {
+        main.post(() -> {
+            Listener l = listener;
+            if (l != null) l.onBackgroundChanged();
+        });
     }
 
     private static void notifyChanged(File added) {

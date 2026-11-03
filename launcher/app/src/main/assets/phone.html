@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="TV">
 <meta name="theme-color" content="#000000">
 <link rel="apple-touch-icon" href="/icon.png">
-<title>TV Remote</title>
+<title>Controle da TV</title>
 <style>
   :root {
     --bg: #000; --card: #1c1c1e; --card2: #2c2c2e; --line: rgba(255,255,255,.08);
@@ -94,6 +94,35 @@
     background: rgba(44,44,46,.96); padding: 12px 18px; border-radius: 14px; font-size: 15px; font-weight: 500;
     opacity: 0; transition: .25s; pointer-events: none; max-width: calc(100% - 32px); text-align: center; }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  /* background picker */
+  .seg { display: flex; background: var(--card); border-radius: 12px; padding: 3px; gap: 2px; }
+  .seg button { flex: 1; background: none; border-radius: 9px; padding: 9px 4px; font-size: 14px; font-weight: 600; color: var(--dim); }
+  .seg button.on { background: var(--card2); color: var(--text); }
+  #bgPanel .card { margin-top: 10px; }
+  .clrs { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0; }
+  .clrs label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--dim); }
+  .clrs input[type=color] { width: 64px; height: 44px; border: 0; padding: 0; border-radius: 10px; background: none; }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; }
+  .presets button { width: 52px; height: 36px; border-radius: 10px; border: 1px solid var(--line); }
+  .dirs { display: flex; gap: 8px; }
+  .dirs button { flex: 1; background: var(--card2); border-radius: 10px; padding: 10px 0; font-size: 18px; }
+  .dirs button.on { background: var(--accent); }
+  input[type=range] { width: 100%; }
+  /* app name and icon editor */
+  .app { position: relative; }
+  .app .edit { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 15px;
+    background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; font-size: 15px; font-style: normal; }
+  #appSheet { position: fixed; inset: 0; z-index: 9; background: rgba(0,0,0,.5); display: flex; align-items: flex-end;
+    padding: 0 10px calc(env(safe-area-inset-bottom) + 10px); }
+  #appSheet .panel { width: 100%; }
+  #appSheet .group { background: rgba(44,44,46,.97); border-radius: 14px; overflow: hidden; margin-top: 8px; }
+  #appSheet img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
+  #appSheet input[type=text] { display: block; width: 100%; padding: 16px; font-size: 18px; color: var(--text);
+    background: transparent; border: 0; border-top: 1px solid var(--line); outline: none; }
+  #appSheet .group button { display: block; width: 100%; padding: 16px; font-size: 18px; color: var(--accent);
+    background: none; border-top: 1px solid var(--line); }
+  #appSheet .group button.red { color: var(--red); }
+  #appSheet .group button.bold { font-weight: 600; }
   /* photo framing */
   #editor { position: fixed; inset: 0; background: #000; z-index: 10; display: flex; flex-direction: column;
     padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 16px); }
@@ -123,17 +152,17 @@
 <body>
 
 <header>
-  <div class="sub" id="status">Connecting…</div>
-  <h1>Living Room TV</h1>
+  <div class="sub" id="status">Conectando…</div>
+  <h1>Minha TV</h1>
 </header>
 
 <!-- pairing -->
 <section id="pair" class="hidden">
-  <h2>Pair this phone</h2>
+  <h2>Parear este celular</h2>
   <div class="card">
-    <p>Tap the button, then press <b>Allow</b> on the TV with its remote. You only do this once.</p>
-    <button class="btn primary wide" id="askPair">Pair with TV</button>
-    <p id="pairWait" class="hidden" style="margin:14px 0 0;color:var(--text)">On the TV, choose <b>Allow</b> with the remote (press Right, then OK)…</p>
+    <p>Toque no botão e depois escolha <b>Permitir</b> na TV com o controle remoto. Você só faz isso uma vez.</p>
+    <button class="btn primary wide" id="askPair">Parear com a TV</button>
+    <p id="pairWait" class="hidden" style="margin:14px 0 0;color:var(--text)">Na TV, escolha <b>Permitir</b> com o controle (aperte Direita e depois OK)…</p>
   </div>
 </section>
 
@@ -145,34 +174,68 @@
     <div id="pad">
       <div class="dot" id="dot"></div>
       <svg class="arrow" id="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>
-      <div class="hint">Swipe to move · tap to select</div>
+      <div class="hint">Deslize para mover · toque para selecionar</div>
     </div>
     <div class="keys">
-      <button class="key" data-key="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Back</button>
-      <button class="key" id="remoteHome"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+      <button class="key" data-key="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Voltar</button>
+      <button class="key" id="remoteHome"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Início</button>
       <button class="key" data-key="playpause"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5.5v13l8-6.5zM15 5h2.5v14H15zM19.5 5H22v14h-2.5z"/></svg></button>
       <button class="key" data-key="voldown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9zM17 12h4"/></svg></button>
       <button class="key" data-key="mute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/></svg></button>
       <button class="key" data-key="volup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9zM17 12h4M19 10v4"/></svg></button>
     </div>
     <form id="kbRow" autocomplete="off">
-      <input id="kb" type="text" placeholder="Type on the TV…" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
-      <button type="button" class="key" style="width:56px" id="kbDel" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H9l-6 7 6 7h12zM12 9l6 6M18 9l-6 6"/></svg></button>
+      <input id="kb" type="text" placeholder="Digite na TV…" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+      <button type="button" class="key" style="width:56px" id="kbDel" aria-label="Apagar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H9l-6 7 6 7h12zM12 9l6 6M18 9l-6 6"/></svg></button>
     </form>
-    <p class="sub" style="margin:8px 2px 0;font-size:12px">Open a search box on the TV, then type here. Return = Search.</p>
+    <p class="sub" style="margin:8px 2px 0;font-size:12px">Abra uma caixa de busca na TV e digite aqui. Enter = Buscar.</p>
   </section>
 
   <section data-tab="apps">
-    <h2 style="margin-top:14px">Inputs</h2>
+    <h2 style="margin-top:14px">Entradas</h2>
     <div class="row" id="inputs"></div>
-    <h2>Apps</h2>
+    <h2>Aplicativos</h2>
+    <p class="sub" style="margin:-4px 0 10px">Toque no ✎ de um app para renomear ou trocar o ícone.</p>
     <div class="apps" id="apps"></div>
   </section>
 
   <section data-tab="photos">
-    <h2 style="margin-top:14px">Photos</h2>
-    <p class="sub" style="margin:-4px 0 10px">They fade in on the TV home screen. Tap one to show it now, change its framing, swap it or remove it.</p>
-    <button class="btn primary wide" id="addPhotos">Add photos</button>
+    <h2 style="margin-top:14px">Fundo da tela</h2>
+    <p class="sub" style="margin:-4px 0 10px">Escolha o que aparece atrás da tela inicial da TV.</p>
+    <div class="seg" id="bgModes">
+      <button data-mode="photos">Fotos</button>
+      <button data-mode="color">Cor</button>
+      <button data-mode="gradient">Gradiente</button>
+      <button data-mode="video">Vídeo</button>
+    </div>
+    <div id="bgPanel">
+      <div class="card hidden" id="bgColor">
+        <div class="clrs"><label>Cor de fundo<input type="color" id="bgC1" value="#0f2027"></label></div>
+      </div>
+      <div class="card hidden" id="bgGrad">
+        <div class="presets" id="bgPresets"></div>
+        <div class="clrs">
+          <label>Cor 1<input type="color" id="gC1" value="#0f2027"></label>
+          <label>Cor 2<input type="color" id="gC2" value="#2c5364"></label>
+          <label>Cor 3<input type="color" id="gC3" value="#000000"></label>
+        </div>
+        <div class="row"><button class="chip" id="g3use">Usar 3 cores</button></div>
+        <p style="margin:12px 0 6px">Direção</p>
+        <div class="dirs" id="bgDirs">
+          <button data-dir="0">↓</button><button data-dir="1">→</button><button data-dir="2">↘</button><button data-dir="3">↗</button>
+        </div>
+      </div>
+      <div class="card hidden" id="bgVideo">
+        <p>Um vídeo curto em loop e sem som. Vídeos de até 1080p e uns 20 MB funcionam melhor. O limite é 60 MB.</p>
+        <button class="btn primary wide" id="vidPick">Escolher vídeo</button>
+        <input type="file" id="vidFile" accept="video/*" class="hidden">
+        <p id="vidInfo" style="margin:10px 0 0"></p>
+        <button class="btn wide hidden" id="vidDel" style="margin-top:10px">Remover vídeo</button>
+      </div>
+    </div>
+    <h2>Fotos</h2>
+    <p class="sub" style="margin:-4px 0 10px">Elas aparecem em transição na tela inicial da TV. Toque em uma para mostrá-la agora, mudar o enquadramento, trocá-la ou removê-la.</p>
+    <button class="btn primary wide" id="addPhotos">Adicionar fotos</button>
     <input type="file" id="file" accept="image/*" multiple class="hidden">
     <div class="photos" id="photos" style="margin-top:12px"></div>
   </section>
@@ -180,48 +243,47 @@
   <section data-tab="siri">
     <h2 style="margin-top:14px">Siri</h2>
     <div class="card">
-      <p>Say <b>“Hey Siri, Netflix on TV”</b>. Set it up once per app:</p>
+      <p>Diga <b>“E aí, Siri, Netflix na TV”</b>. Configure uma vez para cada app:</p>
       <ol>
-        <li>Tap <b>Copy</b> next to an app below.</li>
-        <li>Open the <b>Shortcuts</b> app → <b>+</b> → <b>Add Action</b> → search <b>Get Contents of URL</b>.</li>
-        <li>Paste the link into it, then name the shortcut what you'll say, e.g. <b>Netflix on TV</b>.</li>
+        <li>Toque em <b>Copiar</b> ao lado de um app abaixo.</li>
+        <li>Abra o app <b>Atalhos</b> → <b>+</b> → <b>Adicionar Ação</b> → procure <b>Obter Conteúdo do URL</b>.</li>
+        <li>Cole o link nela e dê ao atalho o nome que você vai falar, por exemplo <b>Netflix na TV</b>.</li>
       </ol>
     </div>
     <div class="card" style="margin-top:10px" id="siri"></div>
     <div class="card" style="margin-top:10px">
-      <p><b>Play YouTube links on the TV:</b> make a shortcut with <b>Show in Share Sheet</b> on, input <b>URLs</b>, and a
-        <b>Get Contents of URL</b> action with this link plus the <b>Shortcut Input</b> added at the end. Then share any
-        YouTube video to it.</p>
-      <div class="url"><div class="name">YouTube link<small id="ytUrl"></small></div><button id="copyYt">Copy</button></div>
+      <p><b>Reproduzir links do YouTube na TV:</b> crie um atalho com <b>Mostrar na Folha de Compartilhamento</b> ativado, entrada do tipo <b>URLs</b> e uma ação
+        <b>Obter Conteúdo do URL</b> com este link mais a <b>Entrada de Atalho</b> adicionada no final. Depois compartilhe qualquer
+        vídeo do YouTube com ele.</p>
+      <div class="url"><div class="name">Link do YouTube<small id="ytUrl"></small></div><button id="copyYt">Copiar</button></div>
     </div>
     <h2 style="margin-top:34px"></h2>
-    <button class="btn wide" id="forget" style="color:var(--red)">Unpair this phone</button>
+    <button class="btn wide" id="forget" style="color:var(--red)">Desparear este celular</button>
   </section>
 </main>
 
 <nav id="tabs" class="hidden">
-  <button data-go="remote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="4"/><circle cx="12" cy="8.5" r="2.6"/><path d="M10 15h4M10 18h4"/></svg>Remote</button>
+  <button data-go="remote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="4"/><circle cx="12" cy="8.5" r="2.6"/><path d="M10 15h4M10 18h4"/></svg>Controle</button>
   <button data-go="apps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>Apps</button>
-  <button data-go="photos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Photos</button>
+  <button data-go="photos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Fundo</button>
   <button data-go="siri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>Siri</button>
 </nav>
 
 <!-- framing a photo before it is sent -->
 <div id="editor" class="hidden">
   <div class="top">
-    <button class="btn" id="edCancel">Skip</button>
+    <button class="btn" id="edCancel">Pular</button>
     <span class="sub" id="edCount"></span>
-    <button class="btn primary" id="edSend">Send to TV</button>
+    <button class="btn primary" id="edSend">Enviar para a TV</button>
   </div>
   <div class="stage">
     <div style="width:100%">
       <div id="frame">
         <canvas id="cv" width="1280" height="720"></canvas>
-        <div class="guide" style="left:4%;top:7%;width:22%;height:27%">clock</div>
-        <div class="guide" style="right:3%;top:7%;width:36%;height:30%">buttons</div>
+        <div class="guide" style="right:3%;top:7%;width:46%;height:30%">botões</div>
         <div class="guide" style="left:4%;right:4%;bottom:4%;height:21%">apps</div>
       </div>
-      <div class="hint">Drag to move · pinch or slide to zoom<br>Keep faces out of the dashed boxes</div>
+      <div class="hint">Arraste para mover · use pinça ou deslize para ampliar<br>Evite rostos dentro das caixas tracejadas</div>
       <input type="range" id="zoom" min="1" max="3" step="0.01" value="1">
     </div>
   </div>
@@ -231,15 +293,29 @@
   <div class="panel">
     <div class="group">
       <img id="shImg" alt="">
-      <button class="bold" id="shShow">Show on TV now</button>
-      <button id="shFrame">Change framing</button>
-      <button id="shReplace">Replace with another photo</button>
-      <button class="red" id="shRemove">Remove from TV</button>
+      <button class="bold" id="shShow">Mostrar na TV agora</button>
+      <button id="shFrame">Mudar enquadramento</button>
+      <button id="shReplace">Trocar por outra foto</button>
+      <button class="red" id="shRemove">Remover da TV</button>
     </div>
-    <div class="group"><button class="bold" id="shCancel">Cancel</button></div>
+    <div class="group"><button class="bold" id="shCancel">Cancelar</button></div>
   </div>
 </div>
 <input type="file" id="replaceFile" accept="image/*" class="hidden">
+
+<div id="appSheet" class="hidden">
+  <div class="panel">
+    <div class="group">
+      <img id="apImg" alt="">
+      <input type="text" id="apName" placeholder="Nome do app" maxlength="40">
+      <button class="bold" id="apSave">Salvar nome</button>
+      <button id="apIcon">Escolher imagem para o ícone</button>
+      <button class="red" id="apReset">Restaurar nome e ícone originais</button>
+    </div>
+    <div class="group"><button class="bold" id="apClose">Fechar</button></div>
+  </div>
+</div>
+<input type="file" id="apFile" accept="image/*" class="hidden">
 
 <div id="toast"></div>
 
@@ -260,7 +336,7 @@ async function api(path, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
   if (token) headers["X-Token"] = token;
   const res = await fetch(path, Object.assign({}, opts, { headers }));
-  if (res.status === 401) { forget(); throw new Error("not paired"); }
+  if (res.status === 401) { forget(); throw new Error("celular não pareado"); }
   return res.json();
 }
 
@@ -279,13 +355,13 @@ function show(which) {
   $("app").classList.toggle("hidden", which !== "app");
   $("tabs").classList.toggle("hidden", which !== "app");
   document.body.classList.toggle("paired", which === "app");
-  $("status").textContent = which === "app" ? "Connected" : "Not paired";
+  $("status").textContent = which === "app" ? "Conectado" : "Não pareado";
 }
 
 // ------------------------------------------------------------ pairing
 $("askPair").onclick = async () => {
   let r;
-  try { r = await fetch("/api/pair", { method: "POST" }).then((x) => x.json()); } catch (e) { toast("Can't reach the TV"); return; }
+  try { r = await fetch("/api/pair", { method: "POST" }).then((x) => x.json()); } catch (e) { toast("Não consegui falar com a TV"); return; }
   if (!r.ok) { toast(r.error); return; }
   $("askPair").disabled = true;
   $("pairWait").classList.remove("hidden");
@@ -300,13 +376,13 @@ $("askPair").onclick = async () => {
     if (!st.ok) { toast(st.error); return; }
     token = st.token;
     try { localStorage.setItem("tvtoken", token); } catch (e) {}
-    toast("Paired");
+    toast("Pareado");
     load();
     return;
   }
   $("askPair").disabled = false;
   $("pairWait").classList.add("hidden");
-  toast("Nobody answered on the TV");
+  toast("Ninguém respondeu na TV");
 };
 
 // ------------------------------------------------------------ remote
@@ -332,9 +408,16 @@ async function load() {
     const b = document.createElement("button");
     b.className = "app";
     b.innerHTML = '<img loading="lazy" alt=""><span></span>';
-    b.querySelector("img").src = withToken("/api/banner?pkg=" + encodeURIComponent(a.pkg));
+    b.querySelector("img").src = withToken("/api/banner?pkg=" + encodeURIComponent(a.pkg) + "&v=" + bannerV);
     b.querySelector("span").textContent = a.label;
-    b.onclick = () => act("/api/open?app=" + encodeURIComponent(a.pkg), a.label);
+    const ed = document.createElement("i");
+    ed.className = "edit";
+    ed.textContent = "✎";
+    b.appendChild(ed);
+    b.onclick = (ev) => {
+      if (ev.target === ed) { openApp(a); return; }
+      act("/api/open?app=" + encodeURIComponent(a.pkg), a.label);
+    };
     apps.appendChild(b);
   });
 
@@ -343,13 +426,13 @@ async function load() {
   const base = location.origin;
   const siri = $("siri");
   siri.innerHTML = "";
-  s.apps.filter((a) => a.dock).concat([{ label: "Home", home: true }]).forEach((a) => {
+  s.apps.filter((a) => a.dock).concat([{ label: "Início", home: true }]).forEach((a) => {
     const url = withToken(base + (a.home ? "/api/home" : "/api/open?app=" + encodeURIComponent(a.label.toLowerCase())));
     const row = document.createElement("div");
     row.className = "url";
-    row.innerHTML = '<div class="name"></div><button>Copy</button>';
+    row.innerHTML = '<div class="name"></div><button>Copiar</button>';
     row.querySelector(".name").innerHTML = "";
-    row.querySelector(".name").append(a.label + " on TV");
+    row.querySelector(".name").append(a.label + " na TV");
     const small = document.createElement("small");
     small.textContent = url;
     row.querySelector(".name").appendChild(small);
@@ -363,7 +446,7 @@ async function load() {
 
 async function act(path, label) {
   const r = await api(path, { method: "POST" });
-  toast(r.ok ? "Opening " + (r.opened || label) : r.error);
+  toast(r.ok ? "Abrindo " + (r.opened || label) : r.error);
 }
 
 // ------------------------------------------------------------ tabs
@@ -376,9 +459,165 @@ function go(t) {
   document.querySelectorAll("[data-go]").forEach((b) => b.classList.toggle("on", b.dataset.go === t));
   window.scrollTo(0, 0);
   if (t === "remote") checkRemote();
+  if (t === "photos") loadBg();
 }
 document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
 go(tab);
+
+// ------------------------------------------------------------ nome e ícone dos apps
+var apPkg = null, bannerV = 0;
+function openApp(a) {
+  apPkg = a.pkg;
+  $("apImg").src = withToken("/api/banner?pkg=" + encodeURIComponent(a.pkg) + "&v=" + Date.now());
+  $("apName").value = a.label;
+  $("appSheet").classList.remove("hidden");
+}
+function toBanner(f) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const W = 640, H = 360, c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      const s = Math.max(W / img.width, H / img.height), w = img.width * s, h = img.height * s;
+      c.getContext("2d").drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+      URL.revokeObjectURL(img.src);
+      c.toBlob((b) => (b ? resolve(b) : reject(new Error("x"))), "image/png");
+    };
+    img.onerror = () => reject(new Error("x"));
+    img.src = URL.createObjectURL(f);
+  });
+}
+function appChanged() {
+  bannerV = Date.now();
+  $("apImg").src = withToken("/api/banner?pkg=" + encodeURIComponent(apPkg) + "&v=" + bannerV);
+  load();
+}
+$("apClose").onclick = () => $("appSheet").classList.add("hidden");
+$("apSave").onclick = async () => {
+  try {
+    const r = await api("/api/app/rename?pkg=" + encodeURIComponent(apPkg) + "&label=" + encodeURIComponent($("apName").value), { method: "POST" });
+    toast(r.ok ? "Nome salvo" : r.error);
+    if (r.ok) load();
+  } catch (e) { toast("Não consegui falar com a TV"); }
+};
+$("apIcon").onclick = () => $("apFile").click();
+$("apFile").onchange = async () => {
+  const f = $("apFile").files[0];
+  $("apFile").value = "";
+  if (!f) return;
+  try {
+    const blob = await toBanner(f);
+    const r = await api("/api/app/icon?pkg=" + encodeURIComponent(apPkg), { method: "POST", body: blob });
+    toast(r.ok ? "Ícone salvo" : r.error);
+    if (r.ok) appChanged();
+  } catch (e) { toast("Não consegui abrir essa imagem"); }
+};
+$("apReset").onclick = async () => {
+  try {
+    const r = await api("/api/app/reset?pkg=" + encodeURIComponent(apPkg), { method: "POST" });
+    if (r.ok) { toast("Restaurado"); appChanged(); setTimeout(() => load(), 600); }
+  } catch (e) { toast("Não consegui falar com a TV"); }
+};
+
+// ------------------------------------------------------------ fundo (cor, gradiente, vídeo)
+var bg = null, bgView = null, use3 = false;
+const PRESETS = [["#0f2027", "#2c5364"], ["#ff512f", "#dd2476"], ["#2193b0", "#6dd5ed"],
+  ["#134e5e", "#71b280"], ["#41295a", "#2f0743"], ["#232526", "#414345"]];
+
+async function loadBg() {
+  try { bg = await api("/api/bg"); } catch (e) { return; }
+  bgView = null;
+  use3 = !!bg.c3;
+  paintBg();
+}
+
+async function setBg(params, msg) {
+  const q = Object.keys(params).map((k) => k + "=" + encodeURIComponent(params[k])).join("&");
+  try {
+    const r = await api("/api/bg/set?" + q, { method: "POST" });
+    if (r.ok) { bg = r; bgView = null; paintBg(); if (msg) toast(msg); } else toast(r.error);
+  } catch (e) { toast("Não consegui falar com a TV"); }
+}
+
+function gradParams() {
+  return { c1: $("gC1").value, c2: $("gC2").value, c3: use3 ? $("gC3").value : "" };
+}
+function applyGrad() {
+  setBg(Object.assign({ mode: "gradient", dir: bg ? bg.dir : 0 }, gradParams()), "Gradiente aplicado");
+}
+
+function paintBg() {
+  if (!bg) return;
+  const view = bgView || (bg.mode === "image" ? "photos" : bg.mode);
+  document.querySelectorAll("#bgModes button").forEach((b) => b.classList.toggle("on", b.dataset.mode === view));
+  $("bgColor").classList.toggle("hidden", view !== "color");
+  $("bgGrad").classList.toggle("hidden", view !== "gradient");
+  $("bgVideo").classList.toggle("hidden", view !== "video");
+  $("bgC1").value = bg.c1;
+  $("gC1").value = bg.c1;
+  $("gC2").value = bg.c2;
+  if (bg.c3) $("gC3").value = bg.c3;
+  $("gC3").parentElement.classList.toggle("hidden", !use3);
+  $("g3use").textContent = use3 ? "Usar 2 cores" : "Usar 3 cores";
+  document.querySelectorAll("#bgDirs button").forEach((b) => b.classList.toggle("on", Number(b.dataset.dir) === bg.dir));
+  $("vidInfo").textContent = bg.hasVideo ? "Vídeo atual: " + bg.videoMb + " MB" : "Nenhum vídeo enviado.";
+  $("vidDel").classList.toggle("hidden", !bg.hasVideo);
+}
+
+document.querySelectorAll("#bgModes button").forEach((b) => (b.onclick = () => {
+  const m = b.dataset.mode;
+  bgView = m;
+  if (m === "photos") setBg({ mode: "photos" });
+  else if (m === "color") setBg({ mode: "color", c1: $("bgC1").value });
+  else if (m === "gradient") applyGrad();
+  else if (bg && bg.hasVideo) setBg({ mode: "video" });
+  else paintBg();
+}));
+$("bgC1").onchange = () => setBg({ mode: "color", c1: $("bgC1").value }, "Cor aplicada");
+["gC1", "gC2", "gC3"].forEach((id) => ($(id).onchange = () => applyGrad()));
+$("g3use").onclick = () => { use3 = !use3; paintBg(); applyGrad(); };
+document.querySelectorAll("#bgDirs button").forEach((b) => (b.onclick = () =>
+  setBg(Object.assign({ mode: "gradient", dir: b.dataset.dir }, gradParams()), "Gradiente aplicado")));
+PRESETS.forEach((p) => {
+  const b = document.createElement("button");
+  b.style.background = "linear-gradient(135deg," + p[0] + "," + p[1] + ")";
+  b.onclick = () => { use3 = false; setBg({ mode: "gradient", c1: p[0], c2: p[1], c3: "", dir: 2 }, "Gradiente aplicado"); };
+  $("bgPresets").appendChild(b);
+});
+
+$("vidPick").onclick = () => $("vidFile").click();
+$("vidFile").onchange = () => {
+  const f = $("vidFile").files[0];
+  $("vidFile").value = "";
+  if (!f) return;
+  if (f.size > 60 * 1024 * 1024) { toast("Vídeo grande demais (máximo 60 MB)"); return; }
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/bg/video");
+  xhr.setRequestHeader("X-Token", token);
+  xhr.setRequestHeader("Content-Type", "application/octet-stream");
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) $("vidInfo").textContent = "Enviando… " + Math.round((100 * e.loaded) / e.total) + "%";
+  };
+  xhr.onload = () => {
+    let r = {};
+    try { r = JSON.parse(xhr.responseText); } catch (e) {}
+    if (r.ok) {
+      bg = r; bgView = null; paintBg();
+      toast(r.h > 1080 ? "Vídeo enviado (acima de 1080p pode travar a TV)" : "Vídeo enviado");
+    } else {
+      toast(r.error || "Não consegui enviar o vídeo");
+      paintBg();
+    }
+  };
+  xhr.onerror = () => { toast("Não consegui enviar: o celular está no Wi-Fi de casa?"); paintBg(); };
+  xhr.send(f);
+};
+$("vidDel").onclick = async () => {
+  try {
+    const r = await api("/api/bg/video/delete", { method: "POST" });
+    if (r.ok) { bg = r; bgView = null; paintBg(); toast("Vídeo removido"); }
+  } catch (e) { toast("Não consegui falar com a TV"); }
+};
 
 // ------------------------------------------------------------ remote
 let remoteReady = false;
@@ -393,7 +632,7 @@ function remoteState(r) {
   remoteReady = !!r.ready;
   $("remoteMsg").classList.toggle("hidden", remoteReady);
   if (!remoteReady) {
-    $("remoteMsg").textContent = r.message || "Connecting…";
+    $("remoteMsg").textContent = r.message || "Conectando…";
     clearTimeout(checkRemote.t);
     if (tab === "remote" && !document.hidden) checkRemote.t = setTimeout(checkRemote, 2000);
   }
@@ -500,7 +739,7 @@ $("kbDel").onclick = () => {
   if (kbPrev) { kbPrev = kbPrev.slice(0, -1); $("kb").value = kbPrev; }
 };
 $("forget").onclick = async () => {
-  if (!confirm("Unpair this phone?")) return;
+  if (!confirm("Desparear este celular?")) return;
   try { await api("/api/unpair", { method: "POST" }); } catch (e) {}
   forget();
 };
@@ -518,8 +757,8 @@ function copy(text) {
   let ok = false;
   try { ok = document.execCommand("copy"); } catch (e) {}
   ta.remove();
-  if (ok) toast("Copied");
-  else prompt("Copy this link:", text);
+  if (ok) toast("Copiado");
+  else prompt("Copie este link:", text);
 }
 
 // ------------------------------------------------------------ photos
@@ -550,13 +789,13 @@ $("shCancel").onclick = closeSheet;
 $("shShow").onclick = async () => {
   closeSheet();
   const r = await api("/api/photo/show?id=" + sheetId, { method: "POST" });
-  toast(r.ok ? "Showing on the TV" : r.error);
+  toast(r.ok ? "Mostrando na TV" : r.error);
 };
 $("shRemove").onclick = async () => {
-  if (!confirm("Remove this photo from the TV?")) return;
+  if (!confirm("Remover esta foto da TV?")) return;
   closeSheet();
   const r = await api("/api/photo/delete?id=" + sheetId, { method: "POST" });
-  toast(r.ok ? "Removed" : r.error);
+  toast(r.ok ? "Removido" : r.error);
   load();
 };
 $("shFrame").onclick = () => {
@@ -592,9 +831,9 @@ const cv = $("cv"), ctx = cv.getContext("2d");
 function next() {
   if (!queue.length) { $("editor").classList.add("hidden"); load(); return; }
   job = queue.shift();
-  $("edCount").textContent = total > 1 ? (total - queue.length) + " of " + total : "";
-  $("edCancel").textContent = job.replace ? "Cancel" : "Skip";
-  $("edSend").textContent = job.replace ? "Save" : "Send to TV";
+  $("edCount").textContent = total > 1 ? (total - queue.length) + " de " + total : "";
+  $("edCancel").textContent = job.replace ? "Cancelar" : "Pular";
+  $("edSend").textContent = job.replace ? "Salvar" : "Enviar para a TV";
   const url = job.file ? URL.createObjectURL(job.file) : job.src;
   const im = new Image();
   im.onload = () => {
@@ -606,7 +845,7 @@ function next() {
     clamp(); draw();
     $("editor").classList.remove("hidden");
   };
-  im.onerror = () => { toast("Couldn't open that photo"); next(); };
+  im.onerror = () => { toast("Não consegui abrir essa foto"); next(); };
   im.src = url;
 }
 
@@ -690,9 +929,9 @@ $("edSend").onclick = async () => {
     }
     if (r.ok && !job.keepOriginal) await post("/api/photo/original?id=" + id, await original());
     photoVersion = Date.now();
-    toast(r.ok ? (job.replace ? "Updated on the TV" : "On the TV now") : r.error);
+    toast(r.ok ? (job.replace ? "Atualizada na TV" : "Já está na TV") : r.error);
   } catch (e) {
-    toast("Couldn't send: is the phone on the home Wi-Fi?");
+    toast("Não consegui enviar: o celular está no Wi-Fi de casa?");
   }
   $("edSend").disabled = false;
   next();

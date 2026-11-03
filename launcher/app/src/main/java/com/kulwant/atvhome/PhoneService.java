@@ -19,12 +19,13 @@ public class PhoneService extends Service {
     public void onCreate() {
         super.onCreate();
         NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel("phone", "Phone control", NotificationManager.IMPORTANCE_MIN));
+        nm.createNotificationChannel(new NotificationChannel("phone", "Controle pelo celular", NotificationManager.IMPORTANCE_MIN));
         Notification n = new Notification.Builder(this, "phone")
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-                .setContentTitle("Phone control is on")
+                .setContentTitle("Controle pelo celular ativado")
                 .build();
         startForeground(1, n);
+        ClockOverlay.init(this);
         server = new PhoneServer(this);
         server.start();
     }

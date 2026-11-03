@@ -2,112 +2,178 @@ package com.kulwant.atvhome;
 
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.Uri;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.StatFs;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.storage.StorageManager;
+import android.os.storage.StorageVolume;
 import android.provider.Settings;
 import android.text.format.DateFormat;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.SoundEffectConstants;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
+import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Apple TV style home screen. All D-pad navigation is handled here (no Android focus search), so
- * movement is deterministic: zones TOP (pills) / DOCK / GRID, Up/Down move exactly one row.
- */
 public class HomeActivity extends Activity implements Wallpapers.Listener {
 
-    private enum Zone { TOP, DOCK, GRID }
+    private static final String TAG = "HomeActivity";
+    private enum Zone { TOP, DOCK, GRID, QA }
 
-    private static final int PILLS = 3;
-    /** apps per row, dock and grid (config.xml: columns) */
+    private static final int CLOCK_24_SYSTEM = 0, CLOCK_24_FORCE = 1, CLOCK_12_FORCE = 2;
+
     private int COLS;
+    private int dockSlots;
+    private static int dockRecreates;
+    private ChoiceMenu choice;
+    private StoragePicker picker;
+    private static final int REQ_STORAGE = 77;
+    private Runnable pendingPick;
+    private VideoBackground video;
+    private boolean selectDown, selectLong;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
 
-    // layout (px)
     private int W, H, side, bandTop, gridTop, rowH;
 
     private FrameLayout root, content;
-    private TextView greeting, clock, date, dockTitle, wifiText;
+    private TextView clockText, dockTitle;
     private LinearLayout pillRow;
-    // follower counters under the pills: YouTube, Instagram, Facebook
+
+    private final List<View> pills = new ArrayList<>();
+    private View pillInputs, pillWifi, pillSettings, pillClock, pillWeather;
+    private ImageView wifiIcon;
+    private View pillStorage;
+    private TextView storageText;
+    private TextView weatherText;
+    private View usbPill;
+    private StorageVolume usbVolume;
+    private boolean usbPresent;
+    private Weather.Data weatherData;
+
+    private volatile boolean weatherRefreshing;
+    private boolean weatherMenuOpen;
+
+    /** Pill de origem do menu atual (para ancorar submenus abaixo dela). */
+    private View menuAnchorView = null;
+
     private static final String[] SOCIAL_KEYS = {"yt", "ig", "fb"};
-    private static final String[] SOCIAL_UNITS = {"subscribers", "followers", "followers"};
+    private static final String[] SOCIAL_UNITS = {"inscritos", "seguidores", "seguidores"};
     private final String[] socialIds = new String[3];
     private final View[] socialPills = new View[3];
     private final TextView[] socialTexts = new TextView[3];
     private boolean hasSocial;
     private static final long SUBS_REFRESH_MS = 30 * 60_000L;
-    private final View[] pills = new View[PILLS];
     private GlassHighlight highlight;
-    private View glow;
-    private GradientDrawable glowBg;
     private RecyclerView dockRv, gridRv;
     private TileAdapter dockAdapter, gridAdapter;
     private InputsMenu inputs;
+    private RecyclerView qaRv;
+    private TileAdapter qaAdapter;
+    private int qaIdx;
 
     private Zone zone = Zone.DOCK;
     private int topIdx, dockIdx, gridIdx;
     private final RectF hl = new RectF();
     private float hlRadius, hlRadiusNow;
     private boolean hlPlaced;
-    private ValueAnimator hlAnim, glowAnim;
-    private int glowColor = 0;
+    private ValueAnimator hlAnim;
     private int lastTitleApp = -1;
     private boolean titleChanging;
+    private boolean movingItem = false;
 
-    // rotating wallpapers: Files from the photo store (see Wallpapers)
     private final List<Object> wallpapers = new ArrayList<>();
     private final ImageView[] wpViews = new ImageView[2];
     private int wpIdx, wpFront;
 
-    // ---------------------------------------------------------------- lifecycle
+    private static final String[][] APPLE_VIDEOS = {
+            {"Montanhas / Geleira 1", "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_GL_G004_C010_v03_6Mbps.mov"},
+            {"Deserto 1",             "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_DB_D011_D009_SIGNCMP_v15_6Mbps.mov"},
+            {"Los Angeles 1",         "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_LA_A005_C009_v05_t9_6M.mov"},
+            {"Hong Kong 1",           "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_HK_B005_C011_t9_6M_tag0.mov"},
+            {"Hong Kong 2",           "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_HK_H004_C008_v10_6Mbps.mov"},
+            {"Los Angeles 2",         "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_LA_A009_C009_t9_6M_tag0.mov"},
+            {"Costa",                 "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_C002_C005_0818SC_001_v01_6M_HB_tag0.mov"},
+            {"Montanhas / Geleira 2", "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_GL_G010_C006_v08_6Mbps.mov"},
+            {"Lago",                  "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_LW_L001_C006_t9_6M_tag0.mov"},
+            {"Deserto 2",             "http://a1.phobos.apple.com/us/r1000/000/Features/atv/AutumnResources/videos/comp_DB_D011_C010_v10_6Mbps.mov"},
+    };
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences("home", MODE_PRIVATE);
+        ClockOverlay.init(this);
         COLS = Math.max(3, Math.min(6, getResources().getInteger(R.integer.columns)));
         zone = Zone.values()[prefs.getInt("zone", Zone.DOCK.ordinal())];
-        topIdx = prefs.getInt("top", 0);
+        topIdx = 0;
         dockIdx = prefs.getInt("dock", 0);
         gridIdx = prefs.getInt("grid", 0);
-        if (zone == Zone.TOP) zone = Zone.DOCK;   // come back to apps, not the buttons
+        if (zone == Zone.TOP) zone = Zone.DOCK;
 
         buildUi();
+        refreshUsb();
+        updateWeatherPill();
+        updateWifi();
+        topIdx = Math.max(0, Math.min(pills.size() - 1, prefs.getInt("top", 0)));
+
         setContentView(root);
+        showSplashOverlay();
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
@@ -128,6 +194,16 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         pk.addDataScheme("package");
         registerReceiver(packageReceiver, pk);
 
+        IntentFilter usb = new IntentFilter();
+        usb.addAction(Intent.ACTION_MEDIA_MOUNTED);
+        usb.addAction(Intent.ACTION_MEDIA_UNMOUNTED);
+        usb.addAction(Intent.ACTION_MEDIA_EJECT);
+        usb.addAction(Intent.ACTION_MEDIA_REMOVED);
+        usb.addAction(Intent.ACTION_MEDIA_BAD_REMOVAL);
+        usb.addAction(Intent.ACTION_MEDIA_UNMOUNTABLE);
+        usb.addDataScheme("file");
+        registerReceiver(usbReceiver, usb);
+
         loadApps();
 
         Wallpapers.setListener(this);
@@ -137,11 +213,17 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     @Override
     protected void onResume() {
         super.onResume();
+        ClockOverlay.hide(this);
+        refreshUsb();
         updateClock();
         updateWifi();
+        updateStoragePill();
         if (inputs.isOpen()) inputs.close();
+        if (choice.isOpen()) choice.close();
+        if (video != null) video.resume();
         scheduleMinute();
         scheduleWallpaper();
+        loadWeatherAsync(false);
         if (hasSocial && System.currentTimeMillis() - prefs.getLong("counts_at", 0) > SUBS_REFRESH_MS) {
             refreshSubs.run();
         } else if (hasSocial) {
@@ -151,18 +233,17 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
 
     @Override
     protected void onPause() {
-        // nothing ticks (and no wallpaper is decoded) while an app is in front
         main.removeCallbacks(minuteTick);
         main.removeCallbacks(nextWallpaper);
         main.removeCallbacks(refreshSubs);
+        if (video != null) video.pause();
+        selectDown = false;
+        selectLong = false;
+        ClockOverlay.show(this);
         super.onPause();
     }
 
-    /** Some TV firmwares don't deliver ACTION_TIME_TICK, so the clock runs on our own timer. */
-    private final Runnable minuteTick = () -> {
-        updateClock();
-        scheduleMinute();
-    };
+    private final Runnable minuteTick = () -> { updateClock(); scheduleMinute(); };
 
     private void scheduleMinute() {
         main.removeCallbacks(minuteTick);
@@ -173,8 +254,9 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // Home pressed while already home: close menus and return to the dock.
         if (inputs.isOpen()) inputs.close();
+        if (choice.isOpen()) choice.close();
+        if (picker.isOpen()) picker.close();
         if (zone == Zone.GRID && hasWindowFocus()) {
             zone = Zone.DOCK;
             applyFocus(true);
@@ -185,7 +267,9 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     protected void onDestroy() {
         unregisterReceiver(statusReceiver);
         unregisterReceiver(packageReceiver);
+        try { unregisterReceiver(usbReceiver); } catch (Exception ignored) {}
         Wallpapers.setListener(null);
+        if (video != null) video.pause();
         io.shutdownNow();
         super.onDestroy();
     }
@@ -201,11 +285,739 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     };
 
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) { loadApps(); }
+    };
+
+    private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
-            loadApps();
+            String a = i.getAction();
+            if (Intent.ACTION_MEDIA_MOUNTED.equals(a)
+                    || Intent.ACTION_MEDIA_UNMOUNTED.equals(a)
+                    || Intent.ACTION_MEDIA_EJECT.equals(a)
+                    || Intent.ACTION_MEDIA_REMOVED.equals(a)
+                    || Intent.ACTION_MEDIA_BAD_REMOVAL.equals(a)
+                    || Intent.ACTION_MEDIA_UNMOUNTABLE.equals(a)) {
+                main.post(() -> refreshUsb());
+            }
         }
     };
+
+    private int colorBg()        { return 0xFF000000; }
+    private int colorText()      { return 0xFFFFFFFF; }
+    private int colorTextMuted() { return 0x99FFFFFF; }
+    private int colorPillBg()    { return 0x1FFFFFFF; }
+    private int colorPillBorder(){ return 0x26FFFFFF; }
+    private int colorDockBand()  { return colorPillBg(); }
+    private int colorDockBorder(){ return colorPillBorder(); }
+
+    // ================================================================
+    // Relógio
+    // ================================================================
+
+    private static final String[] WEEKDAYS = {"Dom.", "Seg.", "Ter.", "Qua.", "Qui.", "Sex.", "S\u00e1b."};
+
+    private int clockPreset()          { return prefs.getInt("clock_preset", 0); }
+    private int clockMode()            { return prefs.getInt("clock_24h_mode", CLOCK_24_SYSTEM); }
+    private boolean clockShowSeconds() { return prefs.getBoolean("clock_show_seconds", false); }
+
+    private void updateClock() {
+        if (clockText == null) return;
+        Calendar now = Calendar.getInstance();
+        boolean h24;
+        switch (clockMode()) {
+            case CLOCK_24_FORCE: h24 = true; break;
+            case CLOCK_12_FORCE: h24 = false; break;
+            default: h24 = DateFormat.is24HourFormat(this);
+        }
+        String timePattern;
+        if (h24) timePattern = clockShowSeconds() ? "HH:mm:ss" : "HH:mm";
+        else     timePattern = clockShowSeconds() ? "h:mm:ss a" : "h:mm a";
+        CharSequence time = DateFormat.format(timePattern, now);
+
+        StringBuilder sb = new StringBuilder();
+        switch (clockPreset()) {
+            case 1: sb.append(DateFormat.format("dd/MM", now)).append(' ').append(time); break;
+            case 2: sb.append(DateFormat.format("dd", now)).append(". ")
+                        .append(WEEKDAYS[now.get(Calendar.DAY_OF_WEEK) - 1]).append(' ').append(time); break;
+            default: sb.append(WEEKDAYS[now.get(Calendar.DAY_OF_WEEK) - 1]).append(' ').append(time);
+        }
+        clockText.setText(sb.toString());
+    }
+
+    private void openClockMenu() {
+        int preset = clockPreset();
+        boolean overlay = prefs.getBoolean("overlay_enabled", true);
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        cs.add(new ChoiceMenu.Choice((preset == 0 ? "\u2713 " : "    ") + "S\u00e1b. 22:07",
+                () -> setClockPreset(0)));
+        cs.add(new ChoiceMenu.Choice((preset == 1 ? "\u2713 " : "    ") + "24/10 22:07",
+                () -> setClockPreset(1)));
+        cs.add(new ChoiceMenu.Choice((preset == 2 ? "\u2713 " : "    ") + "24. S\u00e1b. 22:07",
+                () -> setClockPreset(2)));
+        cs.add(new ChoiceMenu.Choice("Formato de hora\u2026", this::openClockFormatMenu, true));
+        cs.add(new ChoiceMenu.Choice((overlay ? "\u2713 " : "    ") + "Overlay sempre vis\u00edvel",
+                () -> setOverlayEnabled(!prefs.getBoolean("overlay_enabled", true))));
+        cs.add(new ChoiceMenu.Choice("Posi\u00e7\u00e3o do overlay\u2026",
+                this::openOverlayPositionMenu, true));
+        cs.add(new ChoiceMenu.Choice("Voltar", this::openLauncherSettingsMenu, true));
+        showChoiceMenu("Rel\u00f3gio", cs);
+    }
+
+    private void setOverlayEnabled(boolean enabled) {
+        prefs.edit().putBoolean("overlay_enabled", enabled).apply();
+        if (!enabled) ClockOverlay.hide(this);
+        else ClockOverlay.refresh(this);
+        toast("Overlay " + (enabled ? "ativado" : "desativado"));
+    }
+
+    private void openOverlayPositionMenu() {
+        int cur = prefs.getInt("overlay_position", 1);
+        String[] labels = {"Canto superior esquerdo", "Canto superior direito",
+                "Canto inferior esquerdo", "Canto inferior direito"};
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            final int pos = i;
+            cs.add(new ChoiceMenu.Choice((cur == i ? "\u2713 " : "    ") + labels[i],
+                    () -> setOverlayPosition(pos)));
+        }
+        cs.add(new ChoiceMenu.Choice("Voltar", this::openClockMenu, true));
+        showChoiceMenu("Posi\u00e7\u00e3o do overlay", cs);
+    }
+
+    private void setOverlayPosition(int pos) {
+        prefs.edit().putInt("overlay_position", pos).apply();
+        ClockOverlay.refresh(this);
+        String[] labels = {"Canto superior esquerdo", "Canto superior direito",
+                "Canto inferior esquerdo", "Canto inferior direito"};
+        toast("Posi\u00e7\u00e3o: " + labels[pos]);
+    }
+
+    private void setClockPreset(int p) { prefs.edit().putInt("clock_preset", p).apply(); updateClock(); ClockOverlay.refresh(this); }
+
+    private void openClockFormatMenu() {
+        int cm = clockMode();
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        cs.add(new ChoiceMenu.Choice((cm == CLOCK_24_SYSTEM ? "\u2713 " : "    ") + "12/24h: seguir o sistema",
+                () -> setClockMode(CLOCK_24_SYSTEM)));
+        cs.add(new ChoiceMenu.Choice((cm == CLOCK_24_FORCE ? "\u2713 " : "    ") + "12/24h: sempre 24h",
+                () -> setClockMode(CLOCK_24_FORCE)));
+        cs.add(new ChoiceMenu.Choice((cm == CLOCK_12_FORCE ? "\u2713 " : "    ") + "12/24h: sempre 12h",
+                () -> setClockMode(CLOCK_12_FORCE)));
+        cs.add(new ChoiceMenu.Choice((clockShowSeconds() ? "\u2713 " : "    ") + "Mostrar segundos",
+                () -> { prefs.edit().putBoolean("clock_show_seconds", !clockShowSeconds()).apply(); updateClock(); }));
+        cs.add(new ChoiceMenu.Choice("Voltar", this::openClockMenu, true));
+        showChoiceMenu("Formato de hora", cs);
+    }
+
+    private void setClockMode(int mode) { prefs.edit().putInt("clock_24h_mode", mode).apply(); updateClock(); ClockOverlay.refresh(this); }
+
+    // ================================================================
+    // Menu helper
+    // ================================================================
+
+    private void showChoiceMenu(String title, List<ChoiceMenu.Choice> cs) {
+        if (menuAnchorView != null) {
+            choice.openAt(menuAnchorView, title, cs);
+        } else {
+            choice.open(title, cs);
+        }
+    }
+
+    // ================================================================
+    // Clima
+    // ================================================================
+
+    private void loadWeatherAsync(boolean reopenMenu) {
+        if (Weather.cityName(this).isEmpty()) return;
+        if (weatherRefreshing) return;
+        weatherRefreshing = true;
+        io.execute(() -> {
+            Weather.Data d = Weather.fetch(getApplicationContext());
+            main.post(() -> {
+                weatherRefreshing = false;
+                if (d != null) {
+                    weatherData = d;
+                    updateWeatherPill();
+                    if (reopenMenu && choice.isOpen() && weatherMenuOpen) openWeatherMenu();
+                }
+            });
+        });
+    }
+
+    private void updateWeatherPill() {
+        if (weatherText == null) return;
+        if (weatherData == null) {
+            weatherData = Weather.cached(this);
+            if (weatherData == null) { weatherText.setText("--\u00b0"); return; }
+        }
+        int t = (int) Math.round(weatherData.tempC);
+        weatherText.setText(Weather.emoji(weatherData.code, weatherData.isDay) + " " + t + "\u00b0");
+    }
+
+    private void openWeatherMenu() {
+        weatherMenuOpen = true;
+        String city = Weather.cityName(this);
+        if (city.isEmpty()) {
+            List<ChoiceMenu.Choice> cs = new ArrayList<>();
+            cs.add(new ChoiceMenu.Choice("Configurar cidade\u2026", this::askWeatherCity, true));
+            cs.add(new ChoiceMenu.Choice("Voltar", this::openLauncherSettingsMenu, true));
+            showChoiceMenu("Clima", cs);
+            return;
+        }
+        if (weatherData == null) weatherData = Weather.cached(this);
+
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        if (weatherData != null) {
+            int t = (int) Math.round(weatherData.tempC);
+            cs.add(new ChoiceMenu.Choice("Agora: " + Weather.emoji(weatherData.code, weatherData.isDay)
+                    + " " + t + "\u00b0  " + weatherData.label, () -> {}, true));
+        }
+        List<Weather.Day> days = Weather.fetchDaily(this);
+        if (!days.isEmpty()) {
+            SimpleDateFormat fmt = new SimpleDateFormat("EEE dd/MM", new Locale("pt", "BR"));
+            for (int i = 0; i < days.size() && i < 3; i++) {
+                Weather.Day d = days.get(i);
+                String when = i == 0 ? "Hoje" : (i == 1 ? "Amanh\u00e3" : fmt.format(new Date(d.dateMs)));
+                int maxi = (int) Math.round(d.maxC);
+                int mini = (int) Math.round(d.minC);
+                cs.add(new ChoiceMenu.Choice(when + ": " + Weather.emoji(d.code, true)
+                        + " " + maxi + "\u00b0/" + mini + "\u00b0  " + d.label, () -> {}, true));
+            }
+        } else if (weatherRefreshing) {
+            cs.add(new ChoiceMenu.Choice("(Buscando previs\u00e3o\u2026)", () -> {}, true));
+        } else {
+            cs.add(new ChoiceMenu.Choice("(Sem previs\u00e3o \u2014 toque em Atualizar)", () -> {}, true));
+        }
+        cs.add(new ChoiceMenu.Choice("Atualizar agora", () -> {
+            toast("Atualizando clima\u2026");
+            loadWeatherAsync(true);
+        }));
+        cs.add(new ChoiceMenu.Choice("Mudar cidade (" + city + ")\u2026", this::askWeatherCity, true));
+        cs.add(new ChoiceMenu.Choice("Remover clima", () -> {
+            Weather.clear(this);
+            weatherData = null;
+            setupPills();
+            if (hlPlaced && zone == Zone.TOP) applyFocus(false);
+        }));
+        cs.add(new ChoiceMenu.Choice("Voltar", this::openLauncherSettingsMenu, true));
+        showChoiceMenu("Clima \u2014 " + city, cs);
+        if (days.isEmpty() && !weatherRefreshing) loadWeatherAsync(true);
+    }
+
+    private void askWeatherCity() {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Ex.: S\u00e3o Paulo");
+        String cur = Weather.cityName(this);
+        if (!cur.isEmpty()) input.setText(cur);
+        android.app.AlertDialog d = new android.app.AlertDialog.Builder(this,
+                android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Cidade do clima")
+                .setMessage("Digite o nome da cidade")
+                .setView(input)
+                .setPositiveButton("Salvar", (dlg, w) -> {
+                    final String q = input.getText().toString().trim();
+                    if (q.isEmpty()) { toast("Nome vazio"); return; }
+                    toast("Buscando " + q + "\u2026");
+                    new Thread(() -> {
+                        String err = Weather.setCity(HomeActivity.this, q);
+                        main.post(() -> {
+                            if (err != null) { toast("Clima: " + err); return; }
+                            setupPills();
+                            if (hlPlaced && zone == Zone.TOP) applyFocus(false);
+                            loadWeatherAsync(true);
+                            toast("Clima: " + Weather.cityName(HomeActivity.this));
+                        });
+                    }, "weather-geo").start();
+                })
+                .setNegativeButton("Cancelar", null)
+                .create();
+        d.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        d.show();
+    }
+
+    // ================================================================
+    // Menu do launcher (ancorado sob a pill)
+    // ================================================================
+
+    private void openLauncherSettingsMenuFromPill(View pill) {
+        menuAnchorView = pill;
+        openLauncherSettingsMenu();
+    }
+
+    // === STORAGE ===
+    private View storagePill() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.HORIZONTAL);
+        p.setGravity(Gravity.CENTER_VERTICAL);
+        p.setBackground(Ui.rounded(colorPillBg(), dp(15), dp(1), colorPillBorder()));
+        p.setPadding(dp(12), 0, dp(12), 0);
+        p.setAlpha(0.8f);
+        storageText = Ui.text(this, 400, 12, colorText());
+        storageText.setText("--");
+        p.addView(storageText);
+        return p;
+    }
+
+    private void updateStoragePill() {
+        if (storageText == null) return;
+        try {
+            StatFs stat = new StatFs(Environment.getDataDirectory().getPath());
+            storageText.setText(formatBytes(stat.getAvailableBytes()));
+        } catch (Exception e) {
+            storageText.setText("?");
+        }
+    }
+
+    private String formatBytes(long bytes) {
+        if (bytes < 0) return "?";
+        if (bytes < 1024L * 1024L) return (bytes / 1024L) + "K";
+        if (bytes < 1024L * 1024L * 1024L) return (bytes / (1024L * 1024L)) + "M";
+        double gb = bytes / (1024.0 * 1024.0 * 1024.0);
+        if (gb >= 10) return String.format(Locale.US, "%.0fG", gb);
+        return String.format(Locale.US, "%.1fG", gb);
+    }
+
+    private void openStorageInfo() {
+        try {
+            launch(new Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS));
+        } catch (Exception e) {
+            try { launch(new Intent(Settings.ACTION_SETTINGS)); }
+            catch (Exception e2) { toast("N\u00e3o foi poss\u00edvel abrir o armazenamento"); }
+        }
+    }
+
+    // === LIBERAR MEMORIA ===
+    private void freeMemory() {
+        final ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo before = new ActivityManager.MemoryInfo();
+        am.getMemoryInfo(before);
+        final long beforeMb = before.availMem / (1024 * 1024);
+        final long totalMb = before.totalMem / (1024 * 1024);
+
+        io.execute(() -> {
+            int killed = 0;
+            try {
+                AppRepo.Result r = AppRepo.load(getApplicationContext());
+                List<String> pkgs = new ArrayList<>();
+                for (AppRepo.App a : r.grid) pkgs.add(a.pkg);
+                for (AppRepo.App a : r.dock) pkgs.add(a.pkg);
+                for (String pkg : pkgs) {
+                    if (getPackageName().equals(pkg)) continue;
+                    try { am.killBackgroundProcesses(pkg); killed++; }
+                    catch (Exception ignored) {}
+                }
+            } catch (Exception ignored) {}
+            final int killedFinal = killed;
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+            main.post(() -> {
+                ActivityManager.MemoryInfo after = new ActivityManager.MemoryInfo();
+                am.getMemoryInfo(after);
+                long afterMb = after.availMem / (1024 * 1024);
+                long freed = afterMb - beforeMb;
+                StringBuilder msg = new StringBuilder();
+                msg.append("RAM livre: ").append(afterMb).append(" MB de ").append(totalMb).append(" MB");
+                if (killedFinal > 0) {
+                    msg.append("\n\n").append(killedFinal).append(" apps em background encerrados");
+                    if (freed > 0) msg.append("\nLiberado: ").append(freed).append(" MB");
+                } else {
+                    msg.append("\n\nNenhum app em background p\u00f4de ser encerrado.\nReinicie a TV para liberar mem\u00f3ria.");
+                }
+                new android.app.AlertDialog.Builder(HomeActivity.this,
+                        android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                        .setTitle("Mem\u00f3ria")
+                        .setMessage(msg.toString())
+                        .setPositiveButton("OK", null)
+                        .show();
+            });
+        });
+    }
+
+    private void resetQa() {
+        prefs.edit().remove("qa_order").apply();
+        buildQuickActions();
+        toast("Fileira de ações restaurada.");
+    }
+
+    private void openLauncherSettingsMenu() {
+        weatherMenuOpen = false;
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        cs.add(new ChoiceMenu.Choice("Rel\u00f3gio\u2026", this::openClockMenu, true));
+        cs.add(new ChoiceMenu.Choice("Clima\u2026", this::openWeatherMenu, true));
+        cs.add(new ChoiceMenu.Choice("Backup do layout", this::doBackup));
+        cs.add(new ChoiceMenu.Choice("Restaurar layout", this::doRestore));
+        cs.add(new ChoiceMenu.Choice("Restaurar fileira de a\u00e7\u00f5es", this::resetQa));
+        cs.add(new ChoiceMenu.Choice("Liberar mem\u00f3ria", this::freeMemory));
+        cs.add(new ChoiceMenu.Choice("Configura\u00e7\u00f5es do sistema",
+                () -> launch(new Intent(Settings.ACTION_SETTINGS))));
+        cs.add(new ChoiceMenu.Choice("Cancelar", null));
+        showChoiceMenu("Configura\u00e7\u00f5es do In\u00edcio", cs);
+    }
+
+    // ================================================================
+    // Backup / Restore
+    // ================================================================
+
+        private void doBackup() {
+        try {
+            JSONObject out = new JSONObject();
+            out.put("version", 3);
+            out.put("timestamp", System.currentTimeMillis());
+            String[] prefNames = {"home", "bg", "custom", "wallpapers", "phone"};
+            JSONObject prefsJson = new JSONObject();
+            int totalKeys = 0;
+            for (String name : prefNames) {
+                SharedPreferences sp = getSharedPreferences(name, MODE_PRIVATE);
+                JSONObject section = new JSONObject();
+                for (Map.Entry<String, ?> e : sp.getAll().entrySet()) {
+                    Object v = e.getValue();
+                    try {
+                        if (v instanceof String) section.put(e.getKey(), (String) v);
+                        else if (v instanceof Integer) section.put(e.getKey(), (Integer) v);
+                        else if (v instanceof Long) section.put(e.getKey(), (Long) v);
+                        else if (v instanceof Boolean) section.put(e.getKey(), (Boolean) v);
+                        else if (v instanceof Set) {
+                            org.json.JSONArray arr = new org.json.JSONArray();
+                            for (Object o : (Set<?>) v) arr.put(String.valueOf(o));
+                            section.put(e.getKey(), arr);
+                        }
+                    } catch (Exception ignored) {}
+                }
+                if (section.length() > 0) {
+                    prefsJson.put(name, section);
+                    totalKeys += section.length();
+                }
+            }
+            out.put("prefs", prefsJson);
+
+            // Salva o JSON temporariamente na pasta do app
+            File tempJson = new File(getFilesDir(), "prefs_backup.json");
+            writeText(tempJson, out.toString(2));
+
+            // Cria o ZIP contendo TODAS as imagens (icons, bg, wallpapers) e o JSON
+            // Tenta salvar na pasta pública /Download/AppleTVLauncher/
+            File zipFile = null;
+            boolean isPublic = false;
+            try {
+                File downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+                File appFolder = new File(downloadDir, "AppleTVLauncher");
+                if (!appFolder.exists()) appFolder.mkdirs();
+                File testFile = new File(appFolder, "atvhome-backup.zip");
+                new java.io.FileOutputStream(testFile).close(); // Teste de escrita
+                zipFile = testFile;
+                isPublic = true;
+            } catch (Exception e) {
+                // Se falhar (permissão negada no Android 14), salva na pasta segura do app
+                File backupDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);
+                if (backupDir == null) backupDir = getFilesDir();
+                if (!backupDir.exists()) backupDir.mkdirs();
+                zipFile = new File(backupDir, "atvhome-backup.zip");
+            }
+
+            // Cria o ZIP no local escolhido
+            java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zipFile));
+            addDirToZip(getFilesDir(), getFilesDir(), zos);
+            zos.close();
+
+            if (isPublic) {
+                toast("Backup Completo: " + totalKeys + " chaves.\n\nSalvo em:\n" + zipFile.getAbsolutePath());
+            } else {
+                toast("Backup salvo na pasta segura do app (sem permissão para /Download/):\n" + zipFile.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            toast("Backup falhou: " + e.getMessage());
+        }
+    }
+
+        private void doRestore() {
+        File downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+        File appFolder = new File(downloadDir, "AppleTVLauncher");
+        
+        File safeDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);
+        if (safeDir == null) safeDir = getFilesDir();
+        
+        File[] candidates = {
+            new File(appFolder, "atvhome-backup.zip"),
+            new File(safeDir, "atvhome-backup.zip"),
+            new File(android.os.Environment.getExternalStorageDirectory(), "atvhome-backup.zip"),
+        };
+        File zipFile = null;
+        for (File c : candidates) {
+            if (c.isFile() && c.length() > 0) { zipFile = c; break; }
+        }
+        if (zipFile == null) {
+            toast("Nenhum backup (.zip) encontrado.\nSalve um backup primeiro.");
+            return;
+        }
+        try {
+            // Descompacta o ZIP na pasta do app, sobrescrevendo imagens antigas
+            java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new java.io.FileInputStream(zipFile));
+            java.util.zip.ZipEntry entry;
+            byte[] buffer = new byte[1024];
+            while ((entry = zis.getNextEntry()) != null) {
+                File outFile = new File(getFilesDir(), entry.getName());
+                if (!outFile.getCanonicalPath().startsWith(getFilesDir().getCanonicalPath())) {
+                    continue;
+                }
+                if (entry.isDirectory()) {
+                    outFile.mkdirs();
+                } else {
+                    outFile.getParentFile().mkdirs();
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile);
+                    int len;
+                    while ((len = zis.read(buffer)) > 0) {
+                        fos.write(buffer, 0, len);
+                    }
+                    fos.close();
+                }
+            }
+            zis.close();
+
+            // Lê o JSON que estava dentro do ZIP
+            File tempJson = new File(getFilesDir(), "prefs_backup.json");
+            if (!tempJson.exists()) {
+                toast("Erro: prefs_backup.json não encontrado no ZIP.");
+                return;
+            }
+            String json = readText(tempJson);
+            JSONObject out = new JSONObject(json);
+            int totalKeys = 0;
+            if (out.has("prefs")) {
+                JSONObject prefsJson = out.getJSONObject("prefs");
+                Iterator<String> names = prefsJson.keys();
+                while (names.hasNext()) {
+                    String name = names.next();
+                    JSONObject section = prefsJson.getJSONObject(name);
+                    SharedPreferences.Editor e = getSharedPreferences(name, MODE_PRIVATE).edit();
+                    Iterator<String> keys = section.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        Object v = section.opt(key);
+                        try {
+                            if (v instanceof String) e.putString(key, (String) v);
+                            else if (v instanceof Integer) e.putInt(key, (Integer) v);
+                            else if (v instanceof Long) e.putLong(key, (Long) v);
+                            else if (v instanceof Boolean) e.putBoolean(key, (Boolean) v);
+                            else if (v instanceof org.json.JSONArray) {
+                                org.json.JSONArray arr = (org.json.JSONArray) v;
+                                Set<String> set = new HashSet<>();
+                                for (int i = 0; i < arr.length(); i++) set.add(arr.getString(i));
+                                e.putStringSet(key, set);
+                            }
+                        } catch (Exception ignored) {}
+                        totalKeys++;
+                    }
+                    e.apply();
+                }
+            }
+            toast("Restaurado: " + totalKeys + " chaves. Reiniciando...");
+            
+            // Limpa o cache de imagens em memória do AppRepo para recarregar as novas imagens
+            try {
+                Class<?> clazz = Class.forName("com.kulwant.atvhome.AppRepo");
+                java.lang.reflect.Field[] fields = clazz.getDeclaredFields();
+                for (java.lang.reflect.Field f : fields) {
+                    if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+                        f.setAccessible(true);
+                        Object obj = f.get(null);
+                        if (obj instanceof java.util.List) ((java.util.List<?>) obj).clear();
+                        if (obj instanceof java.util.Map) ((java.util.Map<?,?>) obj).clear();
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            main.postDelayed(this::recreate, 800);
+        } catch (Exception e) {
+            toast("Restore falhou: " + e.getMessage());
+        }
+    }
+
+    private static void addDirToZip(File root, File dir, java.util.zip.ZipOutputStream zos) throws Exception {
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            if (file.isDirectory()) {
+                addDirToZip(root, file, zos);
+            } else {
+                String path = root.toURI().relativize(file.toURI()).getPath();
+                zos.putNextEntry(new java.util.zip.ZipEntry(path));
+                java.io.FileInputStream fis = new java.io.FileInputStream(file);
+                byte[] buffer = new byte[1024];
+                int len;
+                while ((len = fis.read(buffer)) > 0) {
+                    zos.write(buffer, 0, len);
+                }
+                fis.close();
+                zos.closeEntry();
+            }
+        }
+    }
+
+    private static void writeText(File f, String s) throws Exception {
+        File parent = f.getParentFile();
+        if (parent != null && !parent.isDirectory()) parent.mkdirs();
+        try (FileOutputStream out = new FileOutputStream(f)) {
+            out.write(s.getBytes("UTF-8"));
+        }
+    }
+
+    private static String readText(File f) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f), "UTF-8"))) {
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line).append('\n');
+        }
+        return sb.toString();
+    }
+
+    // ================================================================
+    // Wi-Fi (ícone original restaurado)
+    // ================================================================
+
+    @SuppressWarnings("deprecation")
+    private void updateWifi() {
+        if (wifiIcon == null) return;
+        wifiIcon.setImageResource(R.drawable.ic_wifi);
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        NetworkInfo ni = cm == null ? null : cm.getActiveNetworkInfo();
+        wifiIcon.setAlpha((ni != null && ni.isConnected()) ? 1f : 0.4f);
+    }
+
+    // ================================================================
+    // USB
+    // ================================================================
+
+    private void refreshUsb() {
+        if (pillRow == null) return;
+        StorageManager sm = getSystemService(StorageManager.class);
+        StorageVolume found = null;
+        if (sm != null) {
+            try {
+                for (StorageVolume v : sm.getStorageVolumes()) {
+                    if (!v.isRemovable()) continue;
+                    String st = v.getState();
+                    if (Environment.MEDIA_MOUNTED.equals(st)
+                            || Environment.MEDIA_MOUNTED_READ_ONLY.equals(st)) { found = v; break; }
+                }
+            } catch (Exception ignored) {}
+        }
+        boolean now = (found != null);
+        String oldId = usbVolume != null ? volumeId(usbVolume) : "";
+        String newId = found != null ? volumeId(found) : "";
+        boolean changed = (now != usbPresent) || !oldId.equals(newId);
+        usbVolume = found;
+        usbPresent = now;
+        if (changed) {
+            setupPills();
+            if (hlPlaced && zone == Zone.TOP) applyFocus(false);
+        }
+    }
+
+    private String volumeId(StorageVolume v) {
+        if (v == null) return "";
+        String desc = "", uuid = "";
+        try { CharSequence d = v.getDescription(this); if (d != null) desc = d.toString(); } catch (Exception ignored) {}
+        try { String u = v.getUuid(); if (u != null) uuid = u; } catch (Exception ignored) {}
+        return desc + "|" + uuid;
+    }
+
+    private void setupPills() {
+        if (pillRow == null) return;
+        View focused = (topIdx >= 0 && topIdx < pills.size()) ? pills.get(topIdx) : null;
+        pillRow.removeAllViews();
+        pills.clear();
+        if (usbPresent && usbVolume != null) {
+            usbPill = pill(android.R.drawable.ic_menu_save, null);
+            pills.add(usbPill);
+            pillStorage = storagePill();
+            pills.add(pillStorage);
+        } else {
+            usbPill = null;
+            pillStorage = null;
+        }
+        if (!Weather.cityName(this).isEmpty()) {
+            pillWeather = weatherPill();
+            pills.add(pillWeather);
+        } else {
+            pillWeather = null;
+            weatherText = null;
+        }
+        pills.add(pillWifi);
+        pills.add(pillSettings);
+        pills.add(pillClock);
+        for (int i = 0; i < pills.size(); i++) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(30));
+            if (i > 0) lp.leftMargin = dp(8);
+            pillRow.addView(pills.get(i), lp);
+        }
+        int newIdx = -1;
+        if (focused != null) {
+            for (int i = 0; i < pills.size(); i++) {
+                if (pills.get(i) == focused) { newIdx = i; break; }
+            }
+        }
+        if (newIdx >= 0) topIdx = newIdx;
+        else topIdx = Math.max(0, Math.min(topIdx, pills.size() - 1));
+        updateWeatherPill();
+        updateWifi();
+        updateStoragePill();
+        updateTopVisibility();
+    }
+
+    private void showUsbMenu() {
+        if (usbVolume == null) return;
+        menuAnchorView = usbPill;
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        cs.add(new ChoiceMenu.Choice("Remover USB com seguran\u00e7a", this::ejectUsb));
+        cs.add(new ChoiceMenu.Choice("Cancelar", null));
+        showChoiceMenu("Unidade remov\u00edvel", cs);
+    }
+
+    private void ejectUsb() {
+        final StorageVolume v = usbVolume;
+        if (v == null) return;
+        toast("Ejetando USB\u2026");
+        new Thread(() -> {
+            boolean ok = false;
+            try {
+                java.lang.reflect.Method m = StorageVolume.class.getMethod("eject");
+                m.invoke(v); ok = true;
+            } catch (Exception ignored) {}
+            if (!ok) {
+                try {
+                    java.lang.reflect.Method m = StorageVolume.class.getMethod("createEjectIntent");
+                    Object r = m.invoke(v);
+                    if (r instanceof Intent) {
+                        final Intent eject = (Intent) r;
+                        eject.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        main.post(() -> { try { startActivity(eject); } catch (Exception ignored) {} });
+                        ok = true;
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (!ok) {
+                try {
+                    String uuid = v.getUuid();
+                    if (uuid != null && !uuid.isEmpty()) {
+                        Process p = Runtime.getRuntime().exec(new String[]{"sm", "unmount", "public:" + uuid});
+                        ok = p.waitFor() == 0;
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (!ok) {
+                main.post(() -> {
+                    toast("Abra as configura\u00e7\u00f5es de armazenamento e toque em Ejetar");
+                    try { launch(new Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS)); }
+                    catch (Exception e) { launch(new Intent(Settings.ACTION_SETTINGS)); }
+                });
+            }
+        }, "usb-eject").start();
+    }
+
+    // ================================================================
+    // Apps
+    // ================================================================
 
     private void loadApps() {
         io.execute(() -> {
@@ -215,19 +1027,28 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     }
 
     private void setApps(AppRepo.Result r) {
+        if (AppRepo.dockSlots(r.dock.size()) != dockSlots) {
+            if (dockRecreates++ < 2) { recreate(); return; }
+        } else dockRecreates = 0;
         dockAdapter.setApps(r.dock);
         gridAdapter.setApps(r.grid);
         int rows = (r.grid.size() + COLS - 1) / COLS;
         ViewGroup.LayoutParams glp = gridRv.getLayoutParams();
         glp.height = Math.max(rows, 1) * rowH;
         gridRv.setLayoutParams(glp);
+
+        int qaTop = gridTop + Math.max(rows, 1) * rowH + dp(24);
+        if (qaRv != null) {
+            FrameLayout.LayoutParams qrlp = (FrameLayout.LayoutParams) qaRv.getLayoutParams();
+            if (qrlp != null) { qrlp.topMargin = qaTop; qaRv.setLayoutParams(qrlp); }
+        }
+
         ViewGroup.LayoutParams clp = content.getLayoutParams();
-        clp.height = gridTop + Math.max(rows, 1) * rowH + Ui.dp(this, 40);
+        clp.height = qaTop + rowH + Ui.dp(this, 60);
         content.setLayoutParams(clp);
         lastTitleApp = -1;
         clampIndices();
-        // Wait for the RecyclerViews to lay out before placing the highlight.
-        content.post(() -> content.post(() -> applyFocus(hlPlaced)));
+        content.post(() -> content.post(() -> { applyFocus(hlPlaced); applyItemScale(); }));
     }
 
     private void clampIndices() {
@@ -238,19 +1059,43 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         if (zone == Zone.DOCK && nd == 0) zone = ng > 0 ? Zone.GRID : Zone.TOP;
     }
 
-    // ---------------------------------------------------------------- UI
+    private int dp(float v) { return Ui.dp(this, v); }
 
-    private int dp(float v) {
-        return Ui.dp(this, v);
+    private void showSplashOverlay() {
+        final FrameLayout splash = new FrameLayout(this);
+        splash.setBackgroundColor(0xFF000000);
+        splash.setClickable(false);
+        splash.setFocusable(false);
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.splash_logo);
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        logo.setPadding(dp(40), dp(40), dp(40), dp(40));
+        splash.addView(logo, new FrameLayout.LayoutParams(-1, -1));
+
+        // Adiciona no topo do z-order
+        root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+        splash.bringToFront();
+
+        // Aguarda 1.5s e faz o fade out
+        main.postDelayed(() -> {
+            splash.animate()
+                    .alpha(0f)
+                    .setDuration(500)
+                    .withEndAction(() -> {
+                        try { root.removeView(splash); } catch (Exception ignored) {}
+                    })
+                    .start();
+        }, 1500);
     }
 
     private void buildUi() {
         W = getResources().getDisplayMetrics().widthPixels;
         H = getResources().getDisplayMetrics().heightPixels;
         side = dp(40);
-        // cells shrink to fit COLS per row; cards keep the 16:9 TV banner shape
         int gap = dp(24);
-        int dockCell = (W - 2 * side - 2 * dp(16)) / COLS, dockCardW = dockCell - gap;
+        dockSlots = AppRepo.dockSlots(AppRepo.installedDockCount(this));
+        int dockCell = (W - 2 * side - 2 * dp(16)) / dockSlots, dockCardW = dockCell - gap;
         int dockCardH = dockCardW * 9 / 16;
         int gridCell = (W - 2 * side + gap) / COLS, gridCardW = gridCell - gap;
         int gridCardH = gridCardW * 9 / 16;
@@ -260,11 +1105,30 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         gridTop = H + dp(56);
 
         root = new FrameLayout(this);
-        root.setBackgroundColor(0xFF000000);
+        root.setBackgroundColor(colorBg());
         root.setClipChildren(false);
 
-        boolean useWallpaper = getResources().getBoolean(R.bool.use_wallpaper);
-        if (useWallpaper) {
+        String bgMode = Background.mode(this);
+        boolean usePhotos = Background.PHOTOS.equals(bgMode) && getResources().getBoolean(R.bool.use_wallpaper);
+        if (Background.COLOR.equals(bgMode) || Background.GRADIENT.equals(bgMode)) {
+            View bg = new View(this);
+            bg.setBackground(Background.drawable(this));
+            root.addView(bg, new FrameLayout.LayoutParams(-1, -1));
+        } else if (Background.VIDEO.equals(bgMode)) {
+            video = new VideoBackground(this, Background.videoFile(this));
+            root.addView(video.view(), new FrameLayout.LayoutParams(-1, -1));
+            addScrim(Background.dim(this));
+        } else if (Background.VIDEO_URL.equals(bgMode)) {
+            video = new VideoBackground(this, Background.videoUrl(this));
+            root.addView(video.view(), new FrameLayout.LayoutParams(-1, -1));
+            addScrim(Background.dim(this));
+        } else if (Background.IMAGE.equals(bgMode)) {
+            ImageView bgImg = new ImageView(this);
+            bgImg.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            bgImg.setImageBitmap(loadWallpaper(Background.imageFile(this)));
+            root.addView(bgImg, new FrameLayout.LayoutParams(-1, -1));
+            addScrim(Background.dim(this));
+        } else if (usePhotos) {
             findWallpapers();
             for (int i = 0; i < 2; i++) {
                 wpViews[i] = new ImageView(this);
@@ -276,11 +1140,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
                 wpIdx = prefs.getInt("wallpaper", 0) % wallpapers.size();
                 wpViews[0].setImageBitmap(loadWallpaper(wallpapers.get(wpIdx)));
             }
-            // darken: evenly, and more towards the bottom where the dock and grid sit
-            View scrim = new View(this);
-            scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{0x59000000, 0x66000000, 0xD9000000}));
-            root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+            addScrim(Background.dim(this));
         }
 
         content = new FrameLayout(this);
@@ -288,64 +1148,32 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         content.setClipToPadding(false);
         root.addView(content, new FrameLayout.LayoutParams(-1, H * 2));
 
-        // ambient glow behind the dock title
-        glow = new View(this);
-        glowBg = new GradientDrawable();
-        glowBg.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        // circle fades out before the view edges; scaleY flattens it into an ellipse
-        glowBg.setGradientRadius(dp(290));
-        glowBg.setGradientCenter(0.4f, 0.5f);
-        glowBg.setColors(new int[]{0, 0});
-        glow.setBackground(glowBg);
-        glow.setScaleY(0.45f);
-        int glowCx = side + dp(110), glowCy = bandTop - dp(44);
-        content.addView(glow, at(dp(900), dp(600), glowCx - dp(360), glowCy - dp(300)));
-
-        // dock band
         View band = new View(this);
-        band.setBackground(Ui.rounded(useWallpaper ? 0x8C141416 : 0xFF141416, dp(28), dp(1), 0x14FFFFFF));
+        band.setBackground(Ui.rounded(colorDockBand(), dp(28), dp(1), colorDockBorder()));
         content.addView(band, at(W - 2 * side, bandH, side, bandTop));
 
-        // the single glass highlight (below tiles and pills)
         highlight = new GlassHighlight(this);
         highlight.setAlpha(0f);
         content.addView(highlight, new FrameLayout.LayoutParams(-1, -1));
 
-        // greeting, clock, date
-        LinearLayout tl = new LinearLayout(this);
-        tl.setOrientation(LinearLayout.VERTICAL);
-        greeting = Ui.text(this, 400, 16, 0x99FFFFFF);
-        clock = Ui.text(this, 150, 78, 0xFFFFFFFF);
-        clock.setLetterSpacing(-0.02f);
-        date = Ui.text(this, 300, 17, 0x99FFFFFF);
-        tl.addView(greeting);
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
-        clp.topMargin = dp(4);
-        clp.leftMargin = -dp(3);
-        tl.addView(clock, clp);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
-        dlp.topMargin = dp(6);
-        tl.addView(date, dlp);
-        content.addView(tl, at(W / 2, -2, side, dp(34)));
-
-        // pills: Inputs, Wi-Fi, Settings
         pillRow = new LinearLayout(this);
         pillRow.setOrientation(LinearLayout.HORIZONTAL);
-        pills[0] = pill(R.drawable.ic_input, "Inputs");
-        pills[1] = pill(R.drawable.ic_wifi, "Wi-Fi");
-        wifiText = (TextView) ((ViewGroup) pills[1]).getChildAt(1);
-        pills[2] = pill(R.drawable.ic_settings, null);
-        for (int i = 0; i < PILLS; i++) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(36));
-            if (i > 0) lp.leftMargin = dp(10);
-            pillRow.addView(pills[i], lp);
-        }
+        pillInputs = pill(R.drawable.ic_input, null);
+        pillWifi = pill(R.drawable.ic_wifi, null);
+        wifiIcon = (ImageView) ((ViewGroup) pillWifi).getChildAt(0);
+        pillSettings = pill(R.drawable.ic_settings, null);
+        pillClock = pill(0, "");
+        clockText = (TextView) ((ViewGroup) pillClock).getChildAt(0);
+        clockText.setMinWidth(dp(72));
+        clockText.setGravity(Gravity.CENTER);
+        setupPills();
+        updateClock();
+        updateWifi();
         FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        plp.topMargin = dp(36);
-        plp.rightMargin = side;
+        plp.topMargin = dp(14);
+        plp.rightMargin = Math.max(dp(8), side - dp(24));
         content.addView(pillRow, plp);
 
-        // follower counters, right-aligned under the pills (display only, never focused)
         socialIds[0] = getString(R.string.youtube_channel).trim();
         socialIds[1] = getString(R.string.instagram_user).trim();
         socialIds[2] = getString(R.string.facebook_page).trim();
@@ -364,7 +1192,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
             ImageView logo = new ImageView(this);
             logo.setImageResource(logos[i]);
             sp.addView(logo, new LinearLayout.LayoutParams(dp(20), dp(20)));
-            socialTexts[i] = Ui.text(this, 500, 14, 0xFFFFFFFF);
+            socialTexts[i] = Ui.text(this, 500, 14, colorText());
             LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
             tlp.leftMargin = dp(8);
             sp.addView(socialTexts[i], tlp);
@@ -375,32 +1203,40 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
             showCount(i, prefs.getString("count_" + SOCIAL_KEYS[i], null));
         }
         FrameLayout.LayoutParams clp2 = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        clp2.topMargin = dp(36 + 36 + 2);
+        clp2.topMargin = dp(14 + 30 + 2);
         clp2.rightMargin = side;
         content.addView(counters, clp2);
 
-        // focused dock app name
-        dockTitle = Ui.text(this, 250, 44, 0xF2FFFFFF);
-        dockTitle.setLetterSpacing(-0.01f);
-        content.addView(dockTitle, at(W - 2 * side, -2, side + dp(28), bandTop - dp(72)));
+        dockTitle = Ui.text(this, 300, 16, colorText());
+        dockTitle.setLetterSpacing(0f);
+        dockTitle.setGravity(Gravity.CENTER);
+        dockTitle.setSingleLine(true);
+        dockTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        FrameLayout.LayoutParams dtlp = new FrameLayout.LayoutParams(-2, dp(24));
+        dtlp.topMargin = bandTop - dp(20);
+        dockTitle.setVisibility(View.GONE);
+        content.addView(dockTitle, dtlp);
 
-        // dock
         dockAdapter = new TileAdapter(dockCell, dockCardW, dockCardH, 0, false);
         dockRv = recycler(new LinearLayoutManager(this, RecyclerView.HORIZONTAL, false), dockAdapter);
-        content.addView(dockRv, at(dockCell * COLS, dockCardH, side + dp(28) - (dockCell - dockCardW) / 2,
+        content.addView(dockRv, at(dockCell * dockSlots, dockCardH, side + dp(28) - (dockCell - dockCardW) / 2,
                 bandTop + (bandH - dockCardH) / 2));
 
-        // grid
-        TextView appsHeader = Ui.text(this, 500, 15, 0x80FFFFFF);
-        appsHeader.setText("Apps");
-        appsHeader.setLetterSpacing(0.04f);
-        content.addView(appsHeader, at(-2, -2, side + dp(2), gridTop - dp(30)));
         gridAdapter = new TileAdapter(gridCell, gridCardW, gridCardH, rowH - gridCardH, true);
         gridRv = recycler(new GridLayoutManager(this, COLS), gridAdapter);
         content.addView(gridRv, at(gridCell * COLS, rowH, side - (gridCell - gridCardW) / 2, gridTop));
 
+        qaAdapter = new TileAdapter(gridCell, gridCardW, gridCardH, rowH - gridCardH, true);
+        qaRv = recycler(new LinearLayoutManager(this, RecyclerView.HORIZONTAL, false), qaAdapter);
+        content.addView(qaRv, at(gridCell * COLS, rowH, side - (gridCell - gridCardW) / 2, H + dp(330)));
+
         inputs = new InputsMenu(this);
         root.addView(inputs.panel);
+        choice = new ChoiceMenu(this);
+        root.addView(choice.panel);        picker = new StoragePicker(this);
+        root.addView(picker.panel, new FrameLayout.LayoutParams(-1, -1));
+
+        buildQuickActions();
     }
 
     private FrameLayout.LayoutParams at(int w, int h, int x, int y) {
@@ -428,48 +1264,50 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.HORIZONTAL);
         p.setGravity(Gravity.CENTER_VERTICAL);
-        p.setBackground(Ui.rounded(0x1FFFFFFF, dp(18), dp(1), 0x26FFFFFF));
-        int padH = label == null ? dp(9) : dp(14);
+        p.setBackground(Ui.rounded(colorPillBg(), dp(15), dp(1), colorPillBorder()));
+        int padH = label == null ? dp(8) : dp(12);
         p.setPadding(padH, 0, padH, 0);
         p.setAlpha(0.8f);
-        ImageView iv = new ImageView(this);
-        iv.setImageResource(icon);
-        p.addView(iv, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        if (icon != 0) {
+            ImageView iv = new ImageView(this);
+            iv.setImageResource(icon);
+            p.addView(iv, new LinearLayout.LayoutParams(dp(15), dp(15)));
+        }
         if (label != null) {
-            TextView t = Ui.text(this, 400, 14, 0xFFFFFFFF);
+            TextView t = Ui.text(this, 400, 12, colorText());
             t.setText(label);
-            t.setMaxWidth(dp(170));
+            t.setMaxWidth(dp(150));
             t.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-            lp.leftMargin = dp(8);
+            lp.leftMargin = icon != 0 ? dp(8) : 0;
             p.addView(t, lp);
         }
         return p;
     }
 
-    // ---------------------------------------------------------------- status
-
-    private void updateClock() {
-        Calendar now = Calendar.getInstance();
-        int h = now.get(Calendar.HOUR_OF_DAY);
-        String part = h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : "Good evening";
-        String name = getString(R.string.greeting_name).trim();
-        greeting.setText(name.isEmpty() ? part : part + ", " + name);
-        boolean h24 = DateFormat.is24HourFormat(this);
-        clock.setText(DateFormat.format(h24 ? "H:mm" : "h:mm", now));
-        date.setText(DateFormat.format("EEEE, d MMMM", now));
+    private View weatherPill() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.HORIZONTAL);
+        p.setGravity(Gravity.CENTER_VERTICAL);
+        p.setBackground(Ui.rounded(colorPillBg(), dp(15), dp(1), colorPillBorder()));
+        p.setPadding(dp(12), 0, dp(12), 0);
+        p.setAlpha(0.8f);
+        weatherText = Ui.text(this, 400, 12, colorText());
+        weatherText.setText("--\u00b0");
+        p.addView(weatherText);
+        return p;
     }
 
-    // ---------------------------------------------------------------- wallpapers
+    // ================================================================
+    // Wallpapers
+    // ================================================================
 
     private boolean findWallpapers() {
-        // bundled wallpapers are copied into the photo store on first run (see Wallpapers)
         wallpapers.clear();
         wallpapers.addAll(Wallpapers.userPhotos(this));
         return !wallpapers.isEmpty();
     }
 
-    /** Decoded at screen size in RGB_565: about 1.8 MB each on a 720p TV. */
     private android.graphics.Bitmap loadWallpaper(Object src) {
         android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
         o.inJustDecodeBounds = true;
@@ -487,7 +1325,6 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         return android.graphics.BitmapFactory.decodeFile(((java.io.File) src).getPath(), o);
     }
 
-    /** The phone page added, replaced, deleted or asked to show a photo: update the rotation now. */
     @Override
     public void onWallpapersChanged(java.io.File added) {
         if (wpViews[0] == null) return;
@@ -499,20 +1336,13 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         }
         int at = added != null ? wallpapers.indexOf(added) : wallpapers.indexOf(current);
         if (at < 0) {
-            // the photo on screen was deleted: move on to the next one
             wpIdx = Math.max(0, wpIdx - 1) % wallpapers.size();
-            main.removeCallbacks(nextWallpaper);
-            nextWallpaper.run();
+            main.removeCallbacks(nextWallpaper); nextWallpaper.run();
         } else if (added != null) {
             wpIdx = (at - 1 + wallpapers.size()) % wallpapers.size();
-            main.removeCallbacks(nextWallpaper);
-            nextWallpaper.run();
-        } else {
-            wpIdx = at;
-        }
+            main.removeCallbacks(nextWallpaper); nextWallpaper.run();
+        } else wpIdx = at;
     }
-
-    // ---------------------------------------------------------------- follower counters
 
     private final Runnable refreshSubs = () -> {
         main.removeCallbacks(this.refreshSubs);
@@ -528,16 +1358,12 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
                 SharedPreferences.Editor e = prefs.edit();
                 for (int i = 0; i < 3; i++) {
                     if (ids[i].isEmpty()) continue;
-                    if (counts[i] == null) {
-                        allOk = false;   // keep showing the last known number
-                        continue;
-                    }
+                    if (counts[i] == null) { allOk = false; continue; }
                     e.putString("count_" + SOCIAL_KEYS[i], counts[i]);
                     showCount(i, counts[i]);
                 }
                 if (allOk) e.putLong("counts_at", System.currentTimeMillis());
                 e.apply();
-                // retry sooner after a failure (e.g. Wi-Fi still connecting after boot)
                 if (hasWindowFocus()) main.postDelayed(this.refreshSubs, allOk ? SUBS_REFRESH_MS : 5 * 60_000L);
             });
         });
@@ -556,7 +1382,6 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         main.postDelayed(nextWallpaper, secs * 1000L);
     }
 
-    /** Fades the next wallpaper in over the current one, then frees the old bitmap. */
     private final Runnable nextWallpaper = () -> {
         if (wallpapers.isEmpty()) return;
         wpIdx = (wpIdx + 1) % wallpapers.size();
@@ -576,41 +1401,6 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         });
     };
 
-    @SuppressWarnings("deprecation")
-    private void updateWifi() {
-        String text = "Offline";
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-        NetworkInfo ni = cm == null ? null : cm.getActiveNetworkInfo();
-        if (ni != null && ni.isConnected()) {
-            if (ni.getType() == ConnectivityManager.TYPE_ETHERNET) {
-                text = "Ethernet";
-            } else if (ni.getType() == ConnectivityManager.TYPE_WIFI) {
-                text = "Wi-Fi";
-                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-                WifiInfo wi = wm == null ? null : wm.getConnectionInfo();
-                String ssid = wi == null ? null : unquote(wi.getSSID());
-                if ((ssid == null || ssid.equals("<unknown ssid>")) && wi != null) {
-                    try {
-                        List<WifiConfiguration> cfgs = wm.getConfiguredNetworks();
-                        if (cfgs != null) for (WifiConfiguration cfg : cfgs) {
-                            if (cfg.networkId == wi.getNetworkId()) ssid = unquote(cfg.SSID);
-                        }
-                    } catch (SecurityException ignored) {
-                    }
-                }
-                if (ssid != null && !ssid.isEmpty() && !ssid.equals("<unknown ssid>")) text = ssid;
-            }
-        }
-        wifiText.setText(text);
-    }
-
-    private static String unquote(String s) {
-        if (s != null && s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) return s.substring(1, s.length() - 1);
-        return s;
-    }
-
-    // ---------------------------------------------------------------- keys
-
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         int k = e.getKeyCode();
@@ -619,21 +1409,59 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
                 || k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER
                 || k == KeyEvent.KEYCODE_NUMPAD_ENTER || k == KeyEvent.KEYCODE_BACK;
         if (!nav) return super.dispatchKeyEvent(e);
-        if (e.getAction() != KeyEvent.ACTION_DOWN) return true;
-
         boolean select = k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER
                 || k == KeyEvent.KEYCODE_NUMPAD_ENTER;
+
+        if (movingItem && e.getAction() == KeyEvent.ACTION_DOWN) {
+            if (k == KeyEvent.KEYCODE_DPAD_LEFT)  { moveItem(-1, 0); return true; }
+            if (k == KeyEvent.KEYCODE_DPAD_RIGHT) { moveItem( 1, 0); return true; }
+            if (k == KeyEvent.KEYCODE_DPAD_UP)    { moveItem( 0,-1); return true; }
+            if (k == KeyEvent.KEYCODE_DPAD_DOWN)  { moveItem( 0, 1); return true; }
+            if (select && e.getRepeatCount() == 0) { confirmMove(); return true; }
+            if (k == KeyEvent.KEYCODE_BACK)        { cancelMove(); return true; }
+            return true;
+        }
+
+        if (e.getAction() != KeyEvent.ACTION_DOWN) {
+            if (select && selectDown) {
+                boolean wasLong = selectLong;
+                selectDown = false;
+                selectLong = false;
+                if (!wasLong && !inputs.isOpen() && !choice.isOpen() && !picker.isOpen()) activate();
+            }
+            return true;
+        }
+        if (picker.isOpen()) return picker.dispatchKey(e);
+        if (choice.isOpen()) {
+            if (k == KeyEvent.KEYCODE_DPAD_UP) { playNavSound(KeyEvent.KEYCODE_DPAD_UP); choice.move(-1); }
+            else if (k == KeyEvent.KEYCODE_DPAD_DOWN) { playNavSound(KeyEvent.KEYCODE_DPAD_DOWN); choice.move(1); }
+            else if (select) {
+                if (e.getRepeatCount() == 0) {
+                    ChoiceMenu.Choice ch = choice.selected();
+                    if (ch == null || !ch.keepOpen) {
+                        choice.close();
+                        weatherMenuOpen = false;
+                        menuAnchorView = null;
+                    }
+                    if (ch != null && ch.action != null) { playClickSound(); ch.action.run(); }
+                }
+            } else {
+                choice.close();
+                weatherMenuOpen = false;
+                menuAnchorView = null;
+            }
+            return true;
+        }
         if (inputs.isOpen()) {
-            if (k == KeyEvent.KEYCODE_DPAD_UP) inputs.move(-1);
-            else if (k == KeyEvent.KEYCODE_DPAD_DOWN) inputs.move(1);
+            if (k == KeyEvent.KEYCODE_DPAD_UP) { playNavSound(KeyEvent.KEYCODE_DPAD_UP); inputs.move(-1); }
+            else if (k == KeyEvent.KEYCODE_DPAD_DOWN) { playNavSound(KeyEvent.KEYCODE_DPAD_DOWN); inputs.move(1); }
             else if (select && e.getRepeatCount() == 0) {
                 Intent i = inputs.selected();
                 inputs.close();
                 if (i != null) launch(i);
-            } else inputs.close();   // back, left, right
+            } else inputs.close();
             return true;
         }
-
         switch (k) {
             case KeyEvent.KEYCODE_DPAD_UP: up(); break;
             case KeyEvent.KEYCODE_DPAD_DOWN: down(); break;
@@ -646,25 +1474,633 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
                 }
                 break;
             default:
-                if (e.getRepeatCount() == 0) activate();
+                if (e.getRepeatCount() == 0) {
+                    selectDown = true;
+                    selectLong = false;
+                } else if (selectDown && !selectLong && zone != Zone.TOP
+                        && (e.getRepeatCount() == 1 || e.isLongPress())) {
+                    selectLong = true;
+                    if (zone == Zone.QA) openQaMenu();
+                    else openItemMenu();
+                }
         }
         return true;
     }
 
-    private void up() {
-        if (zone == Zone.DOCK) {
-            zone = Zone.TOP;
+    private void addScrim(int dim) {
+        if (dim <= 0) return;
+        float f = dim / 100f;
+        int[] base = {0x59, 0x66, 0xD9};
+        int[] cols = new int[3];
+        for (int i = 0; i < 3; i++) cols[i] = Math.round(base[i] * f) << 24;
+        View scrim = new View(this);
+        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, cols));
+        root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    @Override
+    public void onBackgroundChanged() { recreate(); }
+
+    private List<String> dockPackages() {
+        List<String> l = new ArrayList<>();
+        for (AppRepo.App a : dockAdapter.apps) l.add(a.pkg);
+        return l;
+    }
+
+    // === QUICK ACTIONS ===
+    private void buildQuickActions() {
+        if (qaAdapter == null) return;
+        List<AppRepo.App> qaApps = new ArrayList<>();
+
+        try {
+            for (InputsMenu.Item it : InputsMenu.list(this)) {
+                if (it.intent == null) continue;
+                AppRepo.App a = new AppRepo.App();
+                a.pkg = "qa:input:" + it.label;
+                a.label = AppCustom.label(this, a.pkg, it.label);
+                android.graphics.Bitmap custom = AppCustom.icon(this, a.pkg, 320, 180);
+                a.banner = custom != null ? custom : textTile(shortLabel(a.label), inputColor(it.label));
+                qaApps.add(a);
+            }
+        } catch (Exception ignored) {}
+
+        addQaApp(qaApps, "qa:settings", "Configurações", "CONFIG", 0xFF3A3A3C);
+        String order = prefs.getString("qa_order", "");
+        if (!order.isEmpty()) {
+            List<String> wanted = java.util.Arrays.asList(order.split(","));
+            final java.util.Map<String, Integer> pos = new java.util.HashMap<>();
+            for (int i = 0; i < wanted.size(); i++) pos.put(wanted.get(i), i);
+            java.util.Collections.sort(qaApps, (x, y) -> {
+                Integer px = pos.get(x.pkg);
+                Integer py = pos.get(y.pkg);
+                if (px == null && py == null) return 0;
+                if (px == null) return 1;
+                if (py == null) return -1;
+                return px.compareTo(py);
+            });
+        }
+
+        qaAdapter.setApps(qaApps);
+        if (qaIdx >= qaApps.size()) qaIdx = Math.max(0, qaApps.size() - 1);
+    }
+
+    private void addQaApp(List<AppRepo.App> list, String pkg, String label, String text, int color) {
+        AppRepo.App a = new AppRepo.App();
+        a.pkg = pkg;
+        a.label = label;
+        android.graphics.Bitmap custom = AppCustom.icon(this, pkg, 320, 180);
+        a.banner = custom != null ? custom : textTile(text, color);
+        list.add(a);
+    }
+
+    private void handleQuickAction(String pkg) {
+        android.util.Log.e("HomeActivity", "handleQuickAction: " + pkg);
+        if (pkg == null) return;
+        if (pkg.startsWith("qa:input:")) {
+            String label = pkg.substring("qa:input:".length());
+            try {
+                for (InputsMenu.Item it : InputsMenu.list(this)) {
+                    if (it.label.equals(label) && it.intent != null) { launch(it.intent); return; }
+                }
+            } catch (Exception ignored) {}
+            toast("Entrada indisponível: " + label);
+            return;
+        }
+        switch (pkg) {
+            case "qa:settings":
+                launch(new Intent(Settings.ACTION_SETTINGS));
+                break;        }
+    }
+
+    private void sendKey(String key) {
+        try {
+            KeyInjector k = new KeyInjector(this);
+            if (k.isConnected()) { k.press(key, 1); return; }
+            new Thread(() -> {
+                try {
+                    k.ready();
+                    Thread.sleep(500);
+                    k.press(key, 1);
+                } catch (Exception e) {
+                    main.post(() -> toast("Erro: " + e.getMessage()));
+                }
+            }, "key-adb").start();
+        } catch (Exception e) {
+            toast("Não foi possível enviar " + key);
+        }
+    }
+
+    private android.graphics.Bitmap textTile(String label, int bgColor) {
+        int w = 320, h = 180;
+        android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(b);
+        cv.drawColor(bgColor);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(0xFFFFFFFF);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTypeface(Typeface.DEFAULT_BOLD);
+        String[] lines = label.split("\n");
+        float ts = h * 0.26f;
+        p.setTextSize(ts);
+        float totalH = ts * lines.length + (lines.length - 1) * ts * 0.25f;
+        float startY = (h - totalH) / 2f + ts * 0.85f;
+        for (int i = 0; i < lines.length; i++) {
+            cv.drawText(lines[i], w / 2f, startY + i * ts * 1.25f, p);
+        }
+        return b;
+    }
+
+    private static String shortLabel(String label) {
+        String l = label.trim();
+        if (l.length() <= 10) return l.toUpperCase(Locale.US);
+        String[] parts = l.split(" ");
+        if (parts.length >= 2 && parts[0].length() <= 6) {
+            return (parts[0] + "\n" + parts[1]).toUpperCase(Locale.US);
+        }
+        return l.substring(0, 9).toUpperCase(Locale.US);
+    }
+
+    private static int inputColor(String label) {
+        String l = label.toLowerCase(Locale.US);
+        if (l.contains("hdmi")) return 0xFF1E3A5F;
+        if (l.contains("av") || l.contains("comp")) return 0xFF3A0F1D;
+        if (l.contains("tv") || l.contains("vivo")) return 0xFF12351F;
+        return 0xFF3A3A3C;
+    }
+
+    // === POWER MENU ===
+    private void showPowerMenu() {
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        cs.add(new ChoiceMenu.Choice("Suspender (tela apaga)", this::doSleep));
+        cs.add(new ChoiceMenu.Choice("Desligar / Reiniciar (Configurações)", this::doShutdown));
+        cs.add(new ChoiceMenu.Choice("Cancelar", null));
+        menuAnchorView = null;
+        choice.open("Power", cs);
+    }
+
+    private void doShutdown() {
+        // Esta TV não expõe ACTION_REQUEST_SHUTDOWN nem tem root.
+        // Abre as configurações do sistema, onde o usuário desliga com o controle.
+        toast("Esta TV não permite desligar pelo app. Abrindo Configurações...");
+        main.postDelayed(() -> {
+            try { launch(new Intent(Settings.ACTION_SETTINGS)); }
+            catch (Exception ignored) {}
+        }, 800);
+    }
+
+    private void doReboot() {
+        // Esta TV não expõe reboot sem root. Abre as configurações do sistema.
+        toast("Esta TV não permite reiniciar pelo app. Abrindo Configurações...");
+        main.postDelayed(() -> {
+            try { launch(new Intent(Settings.ACTION_SETTINGS)); }
+            catch (Exception ignored) {}
+        }, 800);
+    }
+
+    private void doSleep() {
+        main.post(() -> toast("Conectando ADB..."));
+        new Thread(() -> {
+            try {
+                KeyInjector k = new KeyInjector(this);
+                if (!k.isConnected()) {
+                    k.ready();
+                    for (int i = 0; i < 20; i++) {
+                        if (k.isConnected()) break;
+                        Thread.sleep(500);
+                    }
+                }
+                if (k.isConnected()) {
+                    k.press("power", 1);
+                    main.post(() -> toast("Suspendendo..."));
+                } else {
+                    String err = k.lastError();
+                    main.post(() -> toast("ADB: " + (err != null ? err : "sem conexão")));
+                }
+            } catch (Exception e) {
+                main.post(() -> toast("Erro: " + e.getMessage()));
+            }
+        }, "power-adb").start();
+    }
+
+    private void openQaMenu() {
+        if (qaAdapter == null || qaIdx < 0 || qaIdx >= qaAdapter.getItemCount()) return;
+        final AppRepo.App app = qaAdapter.apps.get(qaIdx);
+        menuAnchorView = null;
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        if (qaIdx > 0) {
+            cs.add(new ChoiceMenu.Choice("Mover para a esquerda", () -> qaMove(qaIdx, -1)));
+        }
+        if (qaIdx < qaAdapter.getItemCount() - 1) {
+            cs.add(new ChoiceMenu.Choice("Mover para a direita", () -> qaMove(qaIdx, 1)));
+        }
+        cs.add(new ChoiceMenu.Choice("Renomear", () -> renameApp(app)));
+        cs.add(new ChoiceMenu.Choice("Mudar ícone",
+                () -> openPicker("Escolher ícone de " + app.label, false, f -> {
+                    importIcon(app, f);
+                    main.postDelayed(this::buildQuickActions, 600);
+                })));
+        if (AppCustom.hasCustom(this, app.pkg)) {
+            cs.add(new ChoiceMenu.Choice("Restaurar nome e ícone", () -> {
+                AppCustom.reset(this, app.pkg);
+                buildQuickActions();
+            }));
+        }
+        cs.add(new ChoiceMenu.Choice("Cancelar", null));
+        choice.open(app.label, cs);
+    }
+
+    private void qaMove(int idx, int d) {
+        if (qaAdapter == null) return;
+        int j = idx + d;
+        if (j < 0 || j >= qaAdapter.getItemCount()) return;
+        java.util.Collections.swap(qaAdapter.apps, idx, j);
+        qaIdx = j;
+        qaAdapter.notifyDataSetChanged();
+        saveQaOrder();
+        applyFocus(true);
+    }
+
+    private void saveQaOrder() {
+        if (qaAdapter == null) return;
+        StringBuilder sb = new StringBuilder();
+        for (AppRepo.App a : qaAdapter.apps) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(a.pkg);
+        }
+        prefs.edit().putString("qa_order", sb.toString()).apply();
+    }
+
+
+
+    private void openItemMenu() {
+        menuAnchorView = null;
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        final AppRepo.App app;
+        if (zone == Zone.DOCK && dockIdx < dockAdapter.getItemCount()) {
+            final int idx = dockIdx;
+            app = dockAdapter.apps.get(idx);
+            cs.add(new ChoiceMenu.Choice("Mover", this::startMoving));
+            cs.add(new ChoiceMenu.Choice("Remover da dock", () -> dockRemove(idx)));
+        } else if (zone == Zone.GRID && gridIdx < gridAdapter.getItemCount()) {
+            app = gridAdapter.apps.get(gridIdx);
+            cs.add(new ChoiceMenu.Choice("Mover", this::startMoving));
+            if (dockAdapter.getItemCount() < AppRepo.DOCK_APPS_MAX) {
+                cs.add(new ChoiceMenu.Choice("Adicionar \u00e0 dock", () -> dockAdd(app)));
+            }
+        } else return;
+        cs.add(new ChoiceMenu.Choice("Renomear", () -> renameApp(app)));
+        cs.add(new ChoiceMenu.Choice("Mudar \u00edcone",
+                () -> openPicker("Escolher \u00edcone de " + app.label, false, f -> importIcon(app, f))));
+        if (AppCustom.hasCustom(this, app.pkg)) {
+            cs.add(new ChoiceMenu.Choice("Restaurar nome e \u00edcone", () -> AppCustom.reset(this, app.pkg)));
+        }
+        cs.add(new ChoiceMenu.Choice("Informa\u00e7\u00f5es do app", () -> openAppInfo(app)));
+        cs.add(new ChoiceMenu.Choice("Desinstalar\u2026", () -> askUninstall(app)));
+        cs.add(new ChoiceMenu.Choice("Fundo da tela\u2026", this::openBackgroundMenu, true));
+        cs.add(new ChoiceMenu.Choice("Cancelar", null));
+        choice.open(app.label, cs);
+    }
+
+    /** Toca o som nativo de navegação (D-pad) do sistema da TV. */
+    private void playNavSound(int keyCode) {
+        if (root == null) return;
+        int effect;
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:    effect = SoundEffectConstants.NAVIGATION_UP;    break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:  effect = SoundEffectConstants.NAVIGATION_DOWN;  break;
+            case KeyEvent.KEYCODE_DPAD_LEFT:  effect = SoundEffectConstants.NAVIGATION_LEFT;  break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: effect = SoundEffectConstants.NAVIGATION_RIGHT; break;
+            default:                          effect = SoundEffectConstants.CLICK;          break;
+        }
+        root.playSoundEffect(effect);
+    }
+
+    /** Toca o som nativo de clique/seleção. */
+    private void playClickSound() {
+        if (root == null) return;
+        root.playSoundEffect(SoundEffectConstants.CLICK);
+    }
+
+    private void startMoving() {
+        if (zone == Zone.DOCK && dockIdx >= dockAdapter.getItemCount()) return;
+        if (zone == Zone.GRID && gridIdx >= gridAdapter.getItemCount()) return;
+        movingItem = true;
+        toast("Mover: use o D-pad. OK confirma, Voltar cancela.");
+    }
+
+    private void moveItem(int dx, int dy) {
+        if (dx < 0) playNavSound(KeyEvent.KEYCODE_DPAD_LEFT);
+        else if (dx > 0) playNavSound(KeyEvent.KEYCODE_DPAD_RIGHT);
+        else if (dy < 0) playNavSound(KeyEvent.KEYCODE_DPAD_UP);
+        else if (dy > 0) playNavSound(KeyEvent.KEYCODE_DPAD_DOWN);
+        if (zone == Zone.DOCK && dx != 0 && dy == 0) {
+            int target = dockIdx + dx;
+            if (target < 0 || target >= dockAdapter.getItemCount()) return;
+            java.util.Collections.swap(dockAdapter.apps, dockIdx, target);
+            dockIdx = target;
+            dockAdapter.notifyDataSetChanged();
+            applyFocus(false);
         } else if (zone == Zone.GRID) {
+            int ng = gridAdapter.getItemCount();
+            int curCol = gridIdx % COLS;
+            int newCol = curCol + dx;
+            if (newCol < 0 || newCol >= COLS) return;
+            int target = (gridIdx / COLS + dy) * COLS + newCol;
+            if (target < 0 || target >= ng) return;
+            if (dy != 0 && (target % COLS) != curCol) return;
+            java.util.Collections.swap(gridAdapter.apps, gridIdx, target);
+            gridIdx = target;
+            gridAdapter.notifyDataSetChanged();
+            applyFocus(false);
+        } else if (zone == Zone.QA && qaAdapter != null && dx != 0 && dy == 0) {
+            int target = qaIdx + dx;
+            if (target < 0 || target >= qaAdapter.getItemCount()) return;
+            java.util.Collections.swap(qaAdapter.apps, qaIdx, target);
+            qaIdx = target;
+            qaAdapter.notifyDataSetChanged();
+            applyFocus(false);
+        }
+    }
+
+    private void saveDockOrder() {
+        List<String> l = new ArrayList<>();
+        for (AppRepo.App a : dockAdapter.apps) l.add(a.pkg);
+        AppRepo.saveDock(this, l);
+    }
+
+    private void saveGridOrder() {
+        StringBuilder sb = new StringBuilder();
+        for (AppRepo.App a : gridAdapter.apps) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(a.pkg);
+        }
+        prefs.edit().putString("grid_order", sb.toString()).apply();
+    }
+
+    private void confirmMove() {
+        movingItem = false;
+        saveDockOrder();
+        saveGridOrder();
+        if (zone == Zone.QA && qaAdapter != null) saveQaOrder();
+        toast("Movido.");
+        applyFocus(true);
+    }
+
+    private void cancelMove() {
+        movingItem = false;
+        toast("Cancelado.");
+        loadApps();
+    }
+
+    private void openAppInfo(AppRepo.App app) {
+        try {
+            Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", app.pkg, null));
+            launch(i);
+        } catch (Exception e) { toast("N\u00e3o consegui abrir as informa\u00e7\u00f5es"); }
+    }
+
+    private void askUninstall(AppRepo.App app) {
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Desinstalar")
+                .setMessage("Desinstalar \"" + app.label + "\"?")
+                .setPositiveButton("Desinstalar", (d, w) -> {
+                    try {
+                        Intent i = new Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.pkg, null));
+                        launch(i);
+                    } catch (Exception e) { toast("N\u00e3o consegui desinstalar"); }
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void renameApp(AppRepo.App app) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setText(app.label);
+        input.setSelectAllOnFocus(true);
+        android.app.AlertDialog d = new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Renomear")
+                .setView(input)
+                .setPositiveButton("Salvar", (dlg, w) -> AppCustom.setLabel(this, app.pkg, input.getText().toString()))
+                .setNegativeButton("Cancelar", null)
+                .create();
+        d.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        d.show();
+    }
+
+    private void showInfo(String title, String msg) {
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(title).setMessage(msg).setPositiveButton("OK", null).show();
+    }
+
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_LONG).show(); }
+
+    private void openPicker(String title, boolean withVideo, StoragePicker.OnPick cb) {
+        if (checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            pendingPick = () -> openPicker(title, withVideo, cb);
+            requestPermissions(new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_STORAGE);
+            return;
+        }
+        if (!picker.open(title, withVideo, cb)) {
+            showInfo("Sem acesso ao armazenamento",
+                    "Conceda a permiss\u00e3o pelo computador:\n\nadb shell pm grant " + getPackageName()
+                            + " android.permission.READ_EXTERNAL_STORAGE");
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code != REQ_STORAGE) return;
+        Runnable r = pendingPick;
+        pendingPick = null;
+        if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            if (r != null) r.run();
+        } else {
+            showInfo("Permiss\u00e3o negada", "Sem a permiss\u00e3o de armazenamento n\u00e3o d\u00e1 para escolher arquivos.");
+        }
+    }
+
+    private void importBackground(java.io.File f) {
+        toast("Aplicando o fundo\u2026");
+        new Thread(() -> {
+            String err = Background.importFile(this, f);
+            if (err != null) main.post(() -> toast("Fundo: " + err));
+        }, "bg-import").start();
+    }
+
+    private void importIcon(AppRepo.App app, java.io.File f) {
+        new Thread(() -> {
+            if (!AppCustom.setIconFromFile(this, app.pkg, f)) main.post(() -> toast("N\u00e3o consegui usar essa imagem"));
+        }, "icon-import").start();
+    }
+
+    private static final String[][] SOLID_COLORS = {
+            {"Preto", "#000000"}, {"Grafite", "#1c1c1e"}, {"Azul-noite", "#0b1a33"}, {"Azul-petr\u00f3leo", "#0f3b4a"},
+            {"Verde-floresta", "#12351f"}, {"Roxo", "#2a1245"}, {"Vinho", "#3a0f1d"}, {"Cinza", "#3a3a3c"}};
+    private static final String[][] GRADIENTS = {
+            {"Meia-noite", "#0f2027", "#2c5364"}, {"P\u00f4r do sol", "#ff512f", "#dd2476"},
+            {"Oceano", "#2193b0", "#6dd5ed"}, {"Floresta", "#134e5e", "#71b280"},
+            {"Roxo", "#41295a", "#2f0743"}, {"Grafite", "#232526", "#414345"}};
+
+    private static String tick(boolean on) { return on ? "\u2713 " : "    "; }
+
+    private void applyBackground(String... kv) {
+        HashMap<String, String> m = new HashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) m.put(kv[i], kv[i + 1]);
+        Background.apply(this, m);
+    }
+
+    private void openBackgroundMenu() {
+        String mode = Background.mode(this);
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        cs.add(new ChoiceMenu.Choice(tick(Background.IMAGE.equals(mode) || Background.VIDEO.equals(mode))
+                + "Imagem ou v\u00eddeo do armazenamento\u2026",
+                () -> openPicker("Escolher imagem ou v\u00eddeo de fundo", true, this::importBackground)));
+        cs.add(new ChoiceMenu.Choice(tick(Background.VIDEO_URL.equals(mode) && isAppleVideo(Background.videoUrl(this)))
+                + "V\u00eddeos Apple (online) \u2014 leves\u2026", this::openAppleVideosMenu, true));
+        cs.add(new ChoiceMenu.Choice(tick(Background.VIDEO_URL.equals(mode) && !isAppleVideo(Background.videoUrl(this)))
+                + "Outro v\u00eddeo online (URL)\u2026", this::askVideoUrl, true));
+        cs.add(new ChoiceMenu.Choice(tick(Background.COLOR.equals(mode)) + "Cor s\u00f3lida\u2026", this::openColorMenu, true));
+        cs.add(new ChoiceMenu.Choice(tick(Background.GRADIENT.equals(mode)) + "Gradiente\u2026", this::openGradientMenu, true));
+        cs.add(new ChoiceMenu.Choice(tick(false) + "Voltar", this::openItemMenu, true));
+        choice.open("Fundo da tela", cs);
+    }
+
+    private boolean isAppleVideo(String url) {
+        if (url == null) return false;
+        for (String[] v : APPLE_VIDEOS) if (v[1].equals(url)) return true;
+        return false;
+    }
+
+    private void openAppleVideosMenu() {
+        String cur = Background.videoUrl(this);
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        for (final String[] v : APPLE_VIDEOS) {
+            final String label = v[0];
+            final String url = v[1];
+            String prefix = url.equals(cur) ? "\u2713 " : "    ";
+            cs.add(new ChoiceMenu.Choice(prefix + label, () -> applyVideoUrl(url, label)));
+        }
+        cs.add(new ChoiceMenu.Choice("Voltar", this::openBackgroundMenu, true));
+        choice.open("V\u00eddeos Apple Aerial", cs);
+    }
+
+    private void applyVideoUrl(String url, String label) {
+        HashMap<String, String> m = new HashMap<>();
+        m.put("mode", Background.VIDEO_URL);
+        m.put("video_url", url);
+        String err = Background.apply(this, m);
+        if (err != null) toast("Fundo: " + err);
+        else { toast("Fundo: " + label); recreate(); }
+    }
+
+    private void askVideoUrl() {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setHint("https://exemplo.com/video.mp4");
+        String cur = Background.videoUrl(this);
+        if (cur != null) input.setText(cur);
+        android.app.AlertDialog d = new android.app.AlertDialog.Builder(this,
+                android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("URL do v\u00eddeo online")
+                .setMessage("Cole a URL direta de um v\u00eddeo .mp4 ou .mov")
+                .setView(input)
+                .setPositiveButton("Aplicar", (dlg, w) -> {
+                    String u = input.getText().toString().trim();
+                    if (u.isEmpty()) { toast("URL vazia"); return; }
+                    HashMap<String, String> m = new HashMap<>();
+                    m.put("mode", Background.VIDEO_URL);
+                    m.put("video_url", u);
+                    String err = Background.apply(this, m);
+                    if (err != null) toast("Fundo: " + err);
+                    else recreate();
+                })
+                .setNegativeButton("Cancelar", null)
+                .create();
+        d.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        d.show();
+    }
+
+    private void openColorMenu() {
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        for (String[] col : SOLID_COLORS) {
+            final String hex = col[1];
+            cs.add(new ChoiceMenu.Choice(col[0], () -> applyBackground("mode", Background.COLOR, "c1", hex)));
+        }
+        cs.add(new ChoiceMenu.Choice("Voltar", this::openBackgroundMenu, true));
+        choice.open("Cor s\u00f3lida", cs);
+    }
+
+    private void openGradientMenu() {
+        List<ChoiceMenu.Choice> cs = new ArrayList<>();
+        for (String[] g : GRADIENTS) {
+            final String c1 = g[1], c2 = g[2];
+            cs.add(new ChoiceMenu.Choice(g[0],
+                    () -> applyBackground("mode", Background.GRADIENT, "c1", c1, "c2", c2, "c3", "", "dir", "2")));
+        }
+        cs.add(new ChoiceMenu.Choice("Voltar", this::openBackgroundMenu, true));
+        choice.open("Gradiente", cs);
+    }
+
+    @Override public void onAppsChanged() { loadApps(); }
+
+
+
+    private void dockRemove(int idx) {
+        List<String> l = dockPackages();
+        if (idx < 0 || idx >= l.size()) return;
+        l.remove(idx);
+        dockIdx = Math.max(0, Math.min(idx, l.size() - 1));
+        zone = l.isEmpty() ? Zone.GRID : Zone.DOCK;
+        saveDock(l);
+    }
+
+    private void dockAdd(AppRepo.App app) {
+        List<String> l = dockPackages();
+        if (l.contains(app.pkg)) return;
+        l.add(app.pkg);
+        dockIdx = l.size() - 1;
+        zone = Zone.DOCK;
+        saveDock(l);
+    }
+
+    private void saveDock(List<String> l) {
+        AppRepo.saveDock(this, l);
+        prefs.edit().putInt("dock", dockIdx).putInt("zone", zone.ordinal()).apply();
+        if (AppRepo.dockSlots(l.size()) != dockSlots) recreate();
+        else loadApps();
+    }
+
+    private void up() {
+        playNavSound(KeyEvent.KEYCODE_DPAD_UP);
+        if (zone == Zone.DOCK) zone = Zone.TOP;
+        else if (zone == Zone.GRID) {
             if (gridIdx >= COLS) gridIdx -= COLS;
             else if (dockAdapter.getItemCount() > 0) {
                 zone = Zone.DOCK;
                 dockIdx = Math.min(gridIdx, dockAdapter.getItemCount() - 1);
+            } else zone = Zone.TOP;
+        } else if (zone == Zone.QA) {
+            int ng = gridAdapter.getItemCount();
+            if (ng > 0) {
+                zone = Zone.GRID;
+                int rows = (ng + COLS - 1) / COLS;
+                int lastRowStart = (rows - 1) * COLS;
+                int target = lastRowStart + Math.min(qaIdx, COLS - 1);
+                gridIdx = Math.min(target, ng - 1);
+            } else if (dockAdapter.getItemCount() > 0) {
+                zone = Zone.DOCK;
+                dockIdx = 0;
             } else zone = Zone.TOP;
         } else return;
         applyFocus(true);
     }
 
     private void down() {
+        playNavSound(KeyEvent.KEYCODE_DPAD_DOWN);
         int ng = gridAdapter.getItemCount();
         if (zone == Zone.TOP) {
             if (dockAdapter.getItemCount() > 0) zone = Zone.DOCK;
@@ -674,111 +2110,250 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
             if (ng == 0) return;
             zone = Zone.GRID;
             gridIdx = Math.min(dockIdx, ng - 1);
-        } else {
+        } else if (zone == Zone.GRID) {
             if (gridIdx + COLS < ng) gridIdx += COLS;
             else if (gridIdx / COLS < (ng - 1) / COLS) gridIdx = ng - 1;
-            else return;
-        }
+            else if (qaAdapter != null && qaAdapter.getItemCount() > 0) {
+                zone = Zone.QA;
+                qaIdx = 0;
+            } else return;
+        } else return;
         applyFocus(true);
     }
 
     private void left() {
+        playNavSound(KeyEvent.KEYCODE_DPAD_LEFT);
         if (zone == Zone.TOP && topIdx > 0) topIdx--;
-        else if (zone == Zone.DOCK && dockIdx > 0) dockIdx--;
+        else if (zone == Zone.DOCK) {
+            int n = dockAdapter.getItemCount();
+            if (n <= 0) return;
+            dockIdx = (dockIdx - 1 + n) % n;
+        }
         else if (zone == Zone.GRID && gridIdx % COLS > 0) gridIdx--;
+        else if (zone == Zone.QA && qaIdx > 0) qaIdx--;
         else return;
         applyFocus(true);
     }
 
     private void right() {
-        if (zone == Zone.TOP && topIdx < PILLS - 1) topIdx++;
-        else if (zone == Zone.DOCK && dockIdx < dockAdapter.getItemCount() - 1) dockIdx++;
+        playNavSound(KeyEvent.KEYCODE_DPAD_RIGHT);
+        if (zone == Zone.TOP && topIdx < pills.size() - 1) topIdx++;
+        else if (zone == Zone.DOCK) {
+            int n = dockAdapter.getItemCount();
+            if (n <= 0) return;
+            dockIdx = (dockIdx + 1) % n;
+        }
         else if (zone == Zone.GRID && gridIdx % COLS < COLS - 1 && gridIdx + 1 < gridAdapter.getItemCount()) gridIdx++;
+        else if (zone == Zone.QA && qaAdapter != null && qaIdx < qaAdapter.getItemCount() - 1) qaIdx++;
         else return;
         applyFocus(true);
     }
 
     private void activate() {
+        playClickSound();
         if (zone == Zone.TOP) {
-            if (topIdx == 0) {
+            View cur = (topIdx >= 0 && topIdx < pills.size()) ? pills.get(topIdx) : null;
+            if (cur == usbPill) showUsbMenu();
+            else if (cur == pillInputs) {
                 int[] loc = new int[2];
-                pills[0].getLocationInWindow(loc);
-                inputs.open(loc[0], loc[1] + pills[0].getHeight() + dp(8));
-            } else if (topIdx == 1) {
-                launch(new Intent(Settings.ACTION_WIFI_SETTINGS));
-            } else {
-                launch(new Intent(Settings.ACTION_SETTINGS));
+                pillInputs.getLocationInWindow(loc);
+                inputs.open(loc[0], loc[1] + pillInputs.getHeight() + dp(8));
+            } else if (cur == pillWifi) launch(new Intent(Settings.ACTION_WIFI_SETTINGS));
+            else if (cur == pillSettings) openLauncherSettingsMenuFromPill(pillSettings);
+            else if (cur == pillStorage) openStorageInfo();
+            else if (cur == pillWeather) {
+                menuAnchorView = pillWeather;
+                openWeatherMenu();
+            } else if (cur == pillClock) {
+                menuAnchorView = pillClock;
+                openClockMenu();
             }
         } else if (zone == Zone.DOCK && dockIdx < dockAdapter.getItemCount()) {
-            launch(AppRepo.launchIntent(getPackageManager(), dockAdapter.apps.get(dockIdx)));
+            AppRepo.App a = dockAdapter.apps.get(dockIdx);
+            launch(AppRepo.launchIntent(getPackageManager(), a));
         } else if (zone == Zone.GRID && gridIdx < gridAdapter.getItemCount()) {
-            launch(AppRepo.launchIntent(getPackageManager(), gridAdapter.apps.get(gridIdx)));
+            AppRepo.App a = gridAdapter.apps.get(gridIdx);
+            launch(AppRepo.launchIntent(getPackageManager(), a));
+        } else if (zone == Zone.QA && qaAdapter != null && qaIdx >= 0 && qaIdx < qaAdapter.getItemCount()) {
+            android.util.Log.e("HomeActivity", "QA activate idx=" + qaIdx + " pkg=" + qaAdapter.apps.get(qaIdx).pkg);
+            playClickSound();
+            handleQuickAction(qaAdapter.apps.get(qaIdx).pkg);
         }
     }
 
     private void launch(Intent i) {
         try {
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (!i.hasCategory(Intent.CATEGORY_HOME)) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            Toast.makeText(this, "N\u00e3o foi poss\u00edvel abrir: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
-    // ---------------------------------------------------------------- focus rendering
+    /** Mostra só o relógio (flat) quando fora da zona TOP; expande os pills quando em TOP. */
+    /** Mostra só o relógio (flat) fora do topo; expande os pills em TOP. */
+    private void updateTopVisibility() {
+        if (pillRow == null || pills.isEmpty()) return;
+        boolean expanded = (zone == Zone.TOP);
+        int clockIdx = pills.indexOf(pillClock);
+
+        for (int i = 0; i < pills.size(); i++) {
+            View p = pills.get(i);
+            boolean isClock = (p == pillClock);
+            if (!isClock) {
+                p.setVisibility(expanded ? View.VISIBLE : View.GONE);
+            } else {
+                p.setVisibility(View.VISIBLE);
+            }
+            if (isClock && !expanded) {
+                p.setBackground(null);
+            } else if (expanded && i == topIdx) {
+                p.setBackground(Ui.rounded(0x40FFFFFF, dp(15), dp(1), 0x40FFFFFF));
+            } else {
+                p.setBackground(Ui.rounded(colorPillBg(), dp(15), dp(1), colorPillBorder()));
+            }
+        }
+
+        if (!expanded && clockIdx >= 0) {
+            topIdx = clockIdx;
+        }
+    }
+
+    /** Destaque por scale no ícone focado (substitui o contorno do GlassHighlight). */
+    private void applyItemScale() {
+        applyItemScaleTo(dockRv, dockAdapter, zone == Zone.DOCK ? dockIdx : -1);
+        applyItemScaleTo(gridRv, gridAdapter, zone == Zone.GRID ? gridIdx : -1);
+        if (qaAdapter != null) applyItemScaleTo(qaRv, qaAdapter, zone == Zone.QA ? qaIdx : -1);
+    }
+
+    private void applyItemScaleTo(RecyclerView rv, TileAdapter adapter, int focusedPos) {
+        if (rv == null || adapter == null) return;
+        int count = adapter.getItemCount();
+        for (int i = 0; i < count; i++) {
+            RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(i);
+            if (vh == null) continue;
+            float target = (i == focusedPos) ? 1.10f : 1.0f;
+            View item = vh.itemView;
+            if (Math.abs(item.getScaleX() - target) > 0.01f) {
+                item.animate().scaleX(target).scaleY(target).setDuration(120).start();
+            }
+        }
+    }
 
     private void applyFocus(boolean animate) {
         prefs.edit().putInt("zone", zone.ordinal()).putInt("top", topIdx)
                 .putInt("dock", dockIdx).putInt("grid", gridIdx).apply();
 
+        updateTopVisibility();
+
         dockAdapter.setFocused(dockRv, zone == Zone.DOCK ? dockIdx : -1);
         gridAdapter.setFocused(gridRv, zone == Zone.GRID ? gridIdx : -1);
-        for (int i = 0; i < PILLS; i++) {
-            float a = zone == Zone.TOP && i == topIdx ? 1f : 0.8f;
-            pills[i].animate().alpha(a).setDuration(150).start();
+        if (qaAdapter != null) qaAdapter.setFocused(qaRv, zone == Zone.QA ? qaIdx : -1);
+
+        if (zone == Zone.QA && qaRv != null && qaAdapter != null
+                && qaIdx >= 0 && qaIdx < qaAdapter.getItemCount()) {
+            RecyclerView.ViewHolder vh = qaRv.findViewHolderForAdapterPosition(qaIdx);
+            boolean visible = false;
+            if (vh != null) {
+                View item = vh.itemView;
+                visible = item.getLeft() >= 0 && item.getRight() <= qaRv.getWidth();
+            }
+            if (!visible) qaRv.scrollToPosition(qaIdx);
         }
 
-        // scroll: dock/top at rest, grid rows bring the grid up one row at a time
+        boolean dockOverflows = dockAdapter.getItemCount() > dockSlots;
+        if (zone == Zone.DOCK && dockOverflows) {
+            RecyclerView.ViewHolder vh = dockRv.findViewHolderForAdapterPosition(dockIdx);
+            boolean visible = false;
+            if (vh != null) {
+                View item = vh.itemView;
+                visible = item.getLeft() >= 0 && item.getRight() <= dockRv.getWidth();
+            }
+            if (!visible) dockRv.scrollToPosition(dockIdx);
+        }
+
+        for (int i = 0; i < pills.size(); i++) {
+            View p = pills.get(i);
+            if (p.getVisibility() != View.VISIBLE) continue;
+            float a;
+            if (p == pillClock && zone != Zone.TOP) a = 1.0f;
+            else if (zone == Zone.TOP && i == topIdx) a = 1.0f;
+            else a = 0.8f;
+            p.animate().alpha(a).setDuration(150).start();
+        }
+
         float shift = 0;
         if (zone == Zone.GRID) {
             int row = gridIdx / COLS;
             shift = gridTop - dp(78) + Math.max(0, row - 1) * rowH;
+        } else if (zone == Zone.QA) {
+            int rows = Math.max(1, (gridAdapter.getItemCount() + COLS - 1) / COLS);
+            shift = gridTop + rows * rowH + dp(24) - dp(78);
         }
-        if (animate) content.animate().translationY(-shift).setDuration(380)
-                .setInterpolator(new DecelerateInterpolator(2f)).start();
-        else content.setTranslationY(-shift);
+        if (animate) {
+            content.animate().translationY(-shift).setDuration(450)
+                    .setInterpolator(new PathInterpolator(0.2f, 0f, 0f, 1f)).start();
+        } else content.setTranslationY(-shift);
 
-        // dock title + glow follow the dock selection
+        // Título da dock: troca direta, sem fade (evita piscada)
         if (dockAdapter.getItemCount() > 0 && dockIdx != lastTitleApp) {
             lastTitleApp = dockIdx;
             AppRepo.App a = dockAdapter.apps.get(dockIdx);
-            if (animate) {
-                titleChanging = true;
-                dockTitle.animate().alpha(0f).setDuration(90).withEndAction(() -> {
-                    dockTitle.setText(a.label);
-                    titleChanging = false;
-                    dockTitle.animate().alpha(titleAlpha()).setDuration(200).start();
-                }).start();
-            } else {
-                dockTitle.setText(a.label);
-                dockTitle.setAlpha(titleAlpha());
-            }
-            setGlow(a.glow, animate);
+            dockTitle.setText("");
+            dockTitle.setAlpha(titleAlpha());
         } else if (!titleChanging) {
-            dockTitle.animate().alpha(titleAlpha()).setDuration(200).start();
+            dockTitle.setAlpha(titleAlpha());
         }
-        glow.animate().alpha(zone == Zone.GRID ? 0f : zone == Zone.TOP ? 0.6f : 1f).setDuration(300).start();
 
-        RectF target = targetRect();
-        if (target != null) moveHighlight(target, animate && hlPlaced);
+        // Destaque por scale no ícone focado
+        if (highlight != null) highlight.setAlpha(0f);
+        applyItemScale();
+
+        positionDockTitle();
     }
 
-    private float titleAlpha() {
-        return zone == Zone.TOP ? 0.55f : 1f;
+
+    private void positionDockTitle() {
+        if (dockRv == null || dockAdapter == null || dockTitle == null) return;
+        if (dockAdapter.getItemCount() == 0) return;
+        final int pos = Math.max(0, Math.min(dockIdx, dockAdapter.getItemCount() - 1));
+        dockRv.post(() -> {
+            RecyclerView.ViewHolder vh = dockRv.findViewHolderForAdapterPosition(pos);
+            if (vh == null) return;
+            View card = vh.itemView.findViewById(R.id.card);
+            if (card == null) return;
+            float cardLeft  = dockRv.getLeft() + vh.itemView.getLeft() + card.getLeft();
+            float cardRight = cardLeft + card.getWidth();
+            float cardCx = (cardLeft + cardRight) / 2f;
+            float titleWidth = card.getWidth() * 1.6f;
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) dockTitle.getLayoutParams();
+            if (lp == null) return;
+            lp.width = (int) titleWidth;
+            lp.leftMargin = (int) (cardCx - titleWidth / 2f);
+            dockTitle.setLayoutParams(lp);
+        });
     }
+
+    private float titleAlpha() { return zone == Zone.TOP ? 0.55f : 1f; }
 
     private RectF targetRect() {
+        if (zone == Zone.QA) {
+            if (qaRv == null || qaAdapter == null) return null;
+            if (qaIdx < 0 || qaIdx >= qaAdapter.getItemCount()) return null;
+            RecyclerView.ViewHolder vh = qaRv.findViewHolderForAdapterPosition(qaIdx);
+            if (vh == null) return null;
+            View card = vh.itemView.findViewById(R.id.card);
+            if (card == null) return null;
+            float cx = qaRv.getLeft() + vh.itemView.getLeft() + card.getLeft() + card.getWidth() / 2f;
+            float cy = qaRv.getTop() + vh.itemView.getTop() + card.getTop() + card.getHeight() / 2f;
+            float hw = card.getWidth() * TileAdapter.FOCUS_SCALE / 2f + dp(5);
+            float hh = card.getHeight() * TileAdapter.FOCUS_SCALE / 2f + dp(5);
+            hlRadius = dp(15);
+            return new RectF(cx - hw, cy - hh, cx + hw, cy + hh);
+        }
         if (zone == Zone.TOP) {
-            View p = pills[topIdx];
+            if (topIdx < 0 || topIdx >= pills.size()) return null;
+            View p = pills.get(topIdx);
             float x = pillRow.getLeft() + p.getLeft(), y = pillRow.getTop() + p.getTop();
             if (p.getWidth() == 0) return null;
             float o = dp(3);
@@ -790,6 +2365,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         RecyclerView.ViewHolder vh = rv.findViewHolderForAdapterPosition(pos);
         if (vh == null) return null;
         View card = vh.itemView.findViewById(R.id.card);
+        if (card == null) return null;
         float cx = rv.getLeft() + vh.itemView.getLeft() + card.getLeft() + card.getWidth() / 2f;
         float cy = rv.getTop() + vh.itemView.getTop() + card.getTop() + card.getHeight() / 2f;
         float hw = card.getWidth() * TileAdapter.FOCUS_SCALE / 2f + dp(5);
@@ -824,25 +2400,5 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     private void placeHighlight(RectF r, float radius) {
         hlRadiusNow = radius;
         highlight.set(r, radius);
-    }
-
-    private void setGlow(int color, boolean animate) {
-        if (glowAnim != null) glowAnim.cancel();
-        int from = glowColor == 0 ? (color & 0x00FFFFFF) : glowColor;
-        glowColor = color;
-        if (!animate) {
-            paintGlow(color);
-            return;
-        }
-        glowAnim = ValueAnimator.ofArgb(from, color);
-        glowAnim.setDuration(450);
-        glowAnim.addUpdateListener(va -> paintGlow((int) va.getAnimatedValue()));
-        glowAnim.start();
-    }
-
-    private void paintGlow(int c) {
-        int rgb = c & 0x00FFFFFF;
-        int a = (c >>> 24) * 0x5C / 0xFF;
-        glowBg.setColors(new int[]{(a << 24) | rgb, ((a / 3) << 24) | rgb, rgb});
     }
 }
