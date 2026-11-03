@@ -21,21 +21,22 @@ Um launcher customizado e moderno para Smart TVs rodando **Android 9+** (otimiza
 > **Créditos:** Este projeto foi originalmente baseado no código de [Kulwant Nagi](https://github.com/kulwantnagi) e foi profundamente modificado, otimizado e adaptado por [Joshwps](https://github.com/joshwps).
 
 
+
 ## ✨ Funcionalidades e Guia de Uso
 
 O launcher foi desenhado para ser totalmente personalizável usando o controle remoto da TV. Abaixo estão todas as ações que você pode realizar:
 
-### 🎨 Personalização de Aplicativos
-- **Renomear Apps:** Mude o nome de qualquer aplicativo na Dock ou na Grade principal.
-- **Alterar Ícones:** Substitua o ícone padrão de qualquer app por uma imagem personalizada (pode ser um arquivo da TV ou uma imagem enviada do seu celular).
-- **Restaurar Padrão:** Volte o nome e o ícone de um app para o original de fábrica a qualquer momento.
-- **Organização:** Adicione, remova e mova aplicativos entre a Dock (barra principal) e a Grade.
+### 🎮 Navegação e Controle
+- **Navegar:** Use as setas (cima, baixo, esquerda, direita) do controle para mover o foco entre os aplicativos da Dock (barra inferior) e da Grade.
+- **Abrir App:** Aperte o botão **OK** rapidamente para abrir o aplicativo selecionado.
+- **Menu de Opções (Clique Longo):** Com o foco sobre um aplicativo (na Dock ou na Grade), **pressione e segure o botão OK** para abrir o menu de personalização. Lá você pode:
+  - Renomear o aplicativo.
+  - Alterar o ícone (escolhendo uma imagem do armazenamento da TV).
+  - Restaurar o nome e o ícone original de fábrica.
 
-### 🖼️ Aparência e Layout
-- **Papel de Parede (Wallpaper):** Altere o plano de fundo do launcher escolhendo entre imagens estáticas ou opções rotativas.
-- **Posição da Dock:** Escolha se a barra de aplicativos principais fica na **Base** (padrão) ou no **Topo** da tela.
-- **Ajuste Vertical:** Suba ou desça a Dock em pequenos passos para encaixar perfeitamente na sua TV (20px por clique).
-- **Fontes:** Interface otimizada com fontes mais nítidas, grossas e com sombras para melhor leitura a distância.
+### 🎨 Personalização Visual
+- **Papel de Parede (Wallpaper):** Altere o plano de fundo acessando as configurações do launcher. Você pode escolher imagens estáticas da sua TV.
+- **Fontes e Interface:** Interface otimizada com fontes mais nítidas, grossas e com sombras para melhor leitura a distância.
 
 ### 🌤️ Clima e Relógio
 - **Widget de Clima:** Configure sua cidade (ex: São Paulo) e veja a temperatura em tempo real e a condição do tempo (Open-Meteo API).
@@ -49,6 +50,7 @@ O launcher foi desenhado para ser totalmente personalizável usando o controle r
 - **Launcher Padrão:** Defina o app como a tela inicial do sistema (ao apertar o botão Home do controle).
 
 ### 🛠️ Como Compilar (Sem Android Studio)
+## 🛠️ Como Compilar (Sem Android Studio)
 ## 🛠️ Como Compilar (Sem Android Studio)
 
 Você só precisa do **Java (JDK 17)** e do **Android SDK** configurados no seu Linux.
