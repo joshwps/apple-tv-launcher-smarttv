@@ -49,6 +49,16 @@ The launcher is designed to be fully customizable using the TV remote control. B
 - **Overlay Position:** Choose which corner of the screen the clock will appear when you open YouTube, Netflix, etc.
 - **Clock Format:** Switch between 12h or 24h format, and enable/disable seconds display.
 
+
+### 📱 Phone Remote
+The launcher features a built-in web server that turns your phone into a complete remote control.
+- **How to access:** With the TV and phone on the same Wi-Fi network, open your phone's browser and type the address shown in the launcher settings menu (e.g., `http://192.168.1.167:8080`).
+- **What you can do:**
+  - Trackpad (swipe to navigate, tap to select).
+  - Virtual keyboard (type on the TV in real-time).
+  - Volume and mute control.
+  - Launch apps directly.
+
 ### 💾 System and Backup
 - **Layout Backup:** Save **everything** into a secure `.zip` file.
 - **Restore:** Restore the complete layout with one click.
