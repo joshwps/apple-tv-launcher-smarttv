@@ -1,6 +1,6 @@
 # 📺 Apple TV Launcher (Smart TV)
 
-![Screenshot do Launcher](screenshots/tela_inicial.png)
+<img src="screenshots/tela_inicial.png" width="800" alt="Screenshot do Launcher">
 
 Um launcher customizado e moderno para Smart TVs rodando **Android 9+** (otimizado para Android 14). Inspirado na interface limpa da Apple TV. 
 
