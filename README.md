@@ -1,59 +1,59 @@
-[🇺🇸 English](README_en.md) | [🇧🇷 Português](README.md)
+[🇺🇸 English](README.md) | [🇧🇷 Português](README_pt.md)
 
 # 📺 Apple TV Launcher (Smart TV)
 
-<img src="screenshots/tela_inicial.png" width="800" alt="Screenshot do Launcher">
+<img src="screenshots/tela_inicial.png" width="800" alt="Launcher Screenshot">
 
-Um launcher customizado e moderno para Smart TVs rodando **Android 9+** (otimizado para Android 14). Inspirado na interface limpa da Apple TV.
+A custom, modern launcher for Smart TVs running **Android 9+** (optimized for Android 14). Inspired by the clean interface of Apple TV.
 
-> **Créditos:** Este projeto foi originalmente baseado no código de [Kulwant Nagi](https://github.com/kulwantnagi) e foi profundamente modificado, otimizado e adaptado por [Joshwps](https://github.com/joshwps).
+> **Credits:** This project was originally based on the code by [Kulwant Nagi](https://github.com/kulwantnagi) and has been deeply modified, optimized, and adapted by [Joshwps](https://github.com/joshwps).
 
 ## 📸 Screenshots
 
-### 🏠 Tela Inicial
-<img src="screenshots/tela_inicial.png" width="800" alt="Tela Inicial">
+### 🏠 Home Screen
+<img src="screenshots/tela_inicial.png" width="800" alt="Home Screen">
 
-### 📱 Grade de Aplicativos
-<img src="screenshots/grade_apps.png" width="800" alt="Grade de Aplicativos">
+### 📱 App Grid
+<img src="screenshots/grade_apps.png" width="800" alt="App Grid">
 
-### ⚙️ Menu de Configurações
-<img src="screenshots/menu_configuracoes.png" width="800" alt="Menu de Configurações">
+### ⚙️ Settings Menu
+<img src="screenshots/menu_configuracoes.png" width="800" alt="Settings Menu">
 
-### ☀️ Menu do Clima
-<img src="screenshots/menu_clima.png" width="800" alt="Menu do Clima">
+### ☀️ Weather Menu
+<img src="screenshots/menu_clima.png" width="800" alt="Weather Menu">
 
 ---
 
-## ✨ Funcionalidades e Guia de Uso
+## ✨ Features and User Guide
 
-O launcher foi desenhado para ser totalmente personalizável usando o controle remoto da TV. Abaixo estão todas as ações que você pode realizar:
+The launcher is designed to be fully customizable using the TV remote control. Below are all the actions you can perform:
 
-### 🎮 Navegação e Controle
-- **Navegar:** Use as setas do controle para mover o foco entre a Dock e a Grade.
-- **Abrir App:** Aperte o botão **OK** rapidamente para abrir o aplicativo selecionado.
-- **Menu de Opções (Clique Longo):** Com o foco sobre um aplicativo, **pressione e segure o botão OK** para abrir o menu de personalização. Lá você pode:
-  - Renomear o aplicativo.
-  - Alterar o ícone (escolhendo uma imagem do armazenamento da TV).
-  - Restaurar o nome e o ícone original de fábrica.
+### 🎮 Navigation and Control
+- **Navigate:** Use the D-pad on your remote to move focus between apps in the Dock and the Grid.
+- **Open App:** Press the **OK** button quickly to open the selected app.
+- **Options Menu (Long Press):** With focus on an app, **press and hold the OK button** to open the customization menu. There you can:
+  - Rename the app.
+  - Change the icon (by choosing an image from the TV storage).
+  - Restore the original factory name and icon.
 
-### 🎨 Personalização Visual
-- **Papel de Parede (Wallpaper):** Altere o plano de fundo acessando as configurações do launcher.
-- **Fontes e Interface:** Interface otimizada com fontes mais nítidas, grossas e com sombras para melhor leitura a distância.
+### 🎨 Visual Customization
+- **Wallpaper:** Change the background by accessing the launcher settings.
+- **Fonts and UI:** Optimized interface with sharper, bolder fonts and shadows for better readability from a distance.
 
-### 🌤️ Clima e Relógio
-- **Widget de Clima:** Configure sua cidade e veja a temperatura em tempo real e a condição do tempo (Open-Meteo API).
-- **Overlay de Relógio:** Ative ou desative o relógio flutuante que aparece sobre os aplicativos abertos.
-- **Posição do Overlay:** Escolha em qual canto da tela o relógio vai aparecer quando você abrir o YouTube, Netflix, etc.
-- **Formato do Relógio:** Altere entre formato 12h ou 24h, e ative/desative a exibição dos segundos.
+### 🌤️ Weather and Clock
+- **Weather Widget:** Set your city and see real-time temperature and weather conditions (Open-Meteo API).
+- **Clock Overlay:** Enable or disable the floating clock that appears over opened apps.
+- **Overlay Position:** Choose which corner of the screen the clock will appear when you open YouTube, Netflix, etc.
+- **Clock Format:** Switch between 12h or 24h format, and enable/disable seconds display.
 
-### 💾 Sistema e Backup
-- **Backup do Layout:** Salve **tudo** (posições, ícones personalizados, nomes, wallpaper, clima) em um arquivo `.zip` seguro.
-- **Restauração:** Restaure o layout completo em um clique.
-- **Launcher Padrão:** Defina o app como a tela inicial do sistema.
+### 💾 System and Backup
+- **Layout Backup:** Save **everything** into a secure `.zip` file.
+- **Restore:** Restore the complete layout with one click.
+- **Default Launcher:** Set the app as the system home screen.
 
-## 🛠️ Como Compilar (Sem Android Studio)
+## 🛠️ How to Build (Without Android Studio)
 
-Você só precisa do **Java (JDK 17)** e do **Android SDK** configurados no seu Linux.
+You only need **Java (JDK 17)** and the **Android SDK** configured on your Linux machine.
 
 ```bash
 git clone https://github.com/joshwps/apple-tv-launcher-smarttv.git
@@ -61,14 +61,14 @@ cd apple-tv-launcher-smarttv/launcher
 ./gradlew assembleDebug
 ```
 
-O APK será gerado em: `launcher/app/build/outputs/apk/debug/app-debug.apk`
+The APK will be generated at: `launcher/app/build/outputs/apk/debug/app-debug.apk`
 
-## 📲 Como Instalar na TV
+## 📲 How to Install on TV
 
-Com a TV conectada via ADB, rode:
+With the TV connected via ADB, run:
 ```bash
 adb install -r launcher/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## 📄 Licença
-Este projeto está licenciado sob a Licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+## 📄 License
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
