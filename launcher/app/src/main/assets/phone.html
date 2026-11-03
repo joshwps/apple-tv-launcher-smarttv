@@ -147,6 +147,55 @@
   #sheet .group button:first-child { border-top: 0; }
   #sheet .group button.red { color: var(--red); }
   #sheet .group button.bold { font-weight: 600; }
+
+  #dpad-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 20px auto 10px;
+    width: 260px;
+    height: 260px;
+  }
+  .dpad-outer {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: #4a4a4a;
+    border-radius: 50%;
+    box-shadow: 0 8px 15px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.1);
+  }
+  .dpad-btn {
+    position: absolute;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    color: #fff;
+    border-radius: 50%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .dpad-btn svg { width: 36px; height: 36px; fill: currentColor; }
+  .dpad-btn:active { background: rgba(255,255,255,0.15); }
+  .dpad-up { top: 0; left: 90px; }
+  .dpad-down { bottom: 0; left: 90px; }
+  .dpad-left { left: 0; top: 90px; }
+  .dpad-right { right: 0; top: 90px; }
+  .dpad-center {
+    position: absolute;
+    top: 70px; left: 70px; width: 120px; height: 120px;
+    background: #2c2c2c;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 26px; font-weight: 600; color: #fff;
+    box-shadow: inset 0 4px 8px rgba(0,0,0,0.6), 0 2px 4px rgba(0,0,0,0.4);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .dpad-center:active { background: #3a3a3a; }
 </style>
 </head>
 <body>
@@ -171,10 +220,19 @@
 
   <section data-tab="remote">
     <div id="remoteMsg" class="hidden"></div>
-    <div id="pad">
+    <div id="pad" style="display: none !important;">
       <div class="dot" id="dot"></div>
       <svg class="arrow" id="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>
-      <div class="hint">Deslize para mover · toque para selecionar</div>
+      <div class="hint" style="display:none;">Deslize para mover · toque para selecionar</div>
+    </div>
+    <div id="dpad-container">
+      <div class="dpad-outer">
+        <div class="dpad-btn dpad-up" data-key="up"><svg viewBox="0 0 24 24"><path d="M7 14l5-5 5 5z"/></svg></div>
+        <div class="dpad-btn dpad-down" data-key="down"><svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg></div>
+        <div class="dpad-btn dpad-left" data-key="left"><svg viewBox="0 0 24 24"><path d="M14 7l-5 5 5 5z"/></svg></div>
+        <div class="dpad-btn dpad-right" data-key="right"><svg viewBox="0 0 24 24"><path d="M10 7l5 5-5 5z"/></svg></div>
+        <div class="dpad-center" data-key="ok">OK</div>
+      </div>
     </div>
     <div class="keys">
       <button class="key" data-key="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Voltar</button>
@@ -940,6 +998,19 @@ $("edSend").onclick = async () => {
 // ------------------------------------------------------------ start
 if (token) load(); else show("pair");
 document.addEventListener("visibilitychange", () => { if (!document.hidden && token) load(); });
+
+    // --- NOVO D-PAD TÁTIL ---
+    document.querySelectorAll("#dpad-container [data-key]").forEach(function(el) {
+        el.addEventListener("touchstart", function(e) {
+            e.preventDefault();
+            const k = el.getAttribute("data-key");
+            if (navigator.vibrate) navigator.vibrate(20);
+            if (typeof api === 'function') {
+                api("/api/key?k=" + k + "&n=1", { method: "POST" }).catch(function(){});
+            }
+        }, { passive: false });
+    });
+
 </script>
 </body>
 </html>

@@ -54,7 +54,7 @@ O launcher foi desenhado para ser totalmente personalizável usando o controle r
 O launcher possui um servidor web embutido que transforma o seu celular em um controle remoto completo.
 - **Como acessar:** Com a TV e o celular na mesma rede Wi-Fi, abra o navegador do celular e digite o endereço que aparece no menu de configurações do launcher (ex: `http://192.168.1.167:8080`).
 - **O que você pode fazer:**
-  - Trackpad (deslizar para navegar, tocar para OK).
+  - D-Pad Virtual (setas direcionais e botão OK).
   - Teclado virtual (digitar textos na TV em tempo real).
   - Controle de volume e mudo.
   - Abrir aplicativos diretamente.

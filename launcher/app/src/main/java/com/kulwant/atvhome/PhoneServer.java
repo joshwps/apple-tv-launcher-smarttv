@@ -304,7 +304,7 @@ final class PhoneServer {
             case "/api/remote":
                 json(out, 200, remoteStatus());
                 return;
-            case "/api/key":
+                        case "/api/key":
                 try {
                     int n = 1;
                     try {
