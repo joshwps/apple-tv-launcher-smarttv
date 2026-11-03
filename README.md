@@ -1,7 +1,21 @@
 # 📺 Apple TV Launcher (Smart TV)
 
-<img src="screenshots/tela_inicial.png" width="800" alt="Screenshot do Launcher">
 
+## 📸 Screenshots
+
+### 🏠 Tela Inicial
+<img src="screenshots/tela_inicial.png" width="800" alt="Tela Inicial">
+
+### 📱 Grade de Aplicativos
+<img src="screenshots/grade_apps.png" width="800" alt="Grade de Aplicativos">
+
+### ⚙️ Menu de Configurações
+<img src="screenshots/menu_configuracoes.png" width="800" alt="Menu de Configurações">
+
+### ☀️ Menu do Clima
+<img src="screenshots/menu_clima.png" width="800" alt="Menu do Clima">
+
+---
 Um launcher customizado e moderno para Smart TVs rodando **Android 9+** (otimizado para Android 14). Inspirado na interface limpa da Apple TV. 
 
 > **Créditos:** Este projeto foi originalmente baseado no código de [Kulwant Nagi](https://github.com/kulwantnagi) e foi profundamente modificado, otimizado e adaptado por [Joshwps](https://github.com/joshwps).
