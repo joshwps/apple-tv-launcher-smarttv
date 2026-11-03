@@ -6,6 +6,9 @@
 
 Um launcher customizado e moderno para Smart TVs rodando **Android 9+** (otimizado para Android 14). Inspirado na interface limpa da Apple TV.
 
+
+### ⬇️ [Baixar o APK (v1.0.0)](https://github.com/joshwps/apple-tv-launcher-smarttv/releases/latest)
+
 > **Créditos:** Este projeto foi originalmente baseado no código de [Kulwant Nagi](https://github.com/kulwantnagi) e foi profundamente modificado, otimizado e adaptado por [Joshwps](https://github.com/joshwps).
 
 ## 📸 Screenshots
