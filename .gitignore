@@ -21,3 +21,14 @@ local.properties
 # Pastas de sistema
 .DS_Store
 Thumbs.db
+
+# Ambiente Python (não tem relação com o launcher)
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Backups e arquivos temporários
+*.bak
+backup/
+*.directory
